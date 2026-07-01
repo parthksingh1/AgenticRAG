@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.hypothesis/
+# Node
+node_modules/
+.next/
+.turbo/
+dist/
+*.tsbuildinfo
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# Data & artifacts
+data/
+minio-data/
+evals/reports/*.html
+evals/reports/*.json
+!evals/reports/.gitkeep
+docs/screenshots/*.tmp
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local verification venv (not part of the deliverable; use Docker or `pip install -e .`)
+.venv-dev/
+
+# Terraform state and per-environment variables
+infra/terraform/.terraform/
+infra/terraform/*.tfstate*
+infra/terraform/*.tfvars
+infra/terraform/backend.hcl
+
+# Next.js build output
+apps/web/.next/
+apps/web/node_modules/
+apps/web/playwright-report/
+apps/web/test-results/
