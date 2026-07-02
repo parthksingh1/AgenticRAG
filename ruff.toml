@@ -1,0 +1,59 @@
+# Lint configuration for the Python that lives outside apps/api — the eval
+# harness, the operational scripts and the CLI. Kept in step with
+# apps/api/pyproject.toml deliberately: two Python trees in one repository
+# formatted to different widths produce diffs full of reflowed lines that have
+# nothing to do with the change.
+#
+# apps/api and mcp-servers carry their own pyproject.toml and are excluded here,
+# so each tree is configured in exactly one place.
+
+line-length = 100
+target-version = "py311"
+extend-exclude = ["apps/api", "mcp-servers", "apps/web"]
+
+[lint]
+select = [
+  "E", "W",    # pycodestyle
+  "F",         # pyflakes
+  "I",         # isort
+  "N",         # pep8-naming
+  "UP",        # pyupgrade
+  "B",         # bugbear
+  "BLE",       # no bare `except Exception` without justification
+  "C4",        # comprehensions
+  "SIM",       # simplify
+  "ASYNC",     # async correctness
+  "S",         # bandit-style security
+  "RET",       # return simplification
+  "PTH",       # use pathlib
+  "ANN",       # type annotations
+  "D",         # docstrings
+  "RUF",
+]
+ignore = [
+  "D203",   # conflicts with D211
+  "D213",   # conflicts with D212
+  "ANN101", # annotating `self` adds noise, no signal (deprecated upstream)
+  "ANN102", # ditto for `cls`
+  "ANN401", # Any is occasionally the honest type at boundaries
+  "S101",   # assert
+]
+
+[lint.per-file-ignores]
+# Scripts and the CLI print to a terminal; that is their entire job.
+# The fact table is one long literal per fact on purpose: wrapped across five
+# lines each, sixty facts become unreviewable. S311 — random is used to shuffle
+# a test set, not to generate a secret.
+"evals/scripts/**" = ["T20", "D", "E501", "S311"]
+"evals/run.py" = ["T20", "E501"]
+# Long CSS and Prometheus query literals: wrapping them makes them harder to
+# read and harder to paste into Prometheus to check.
+"scripts/**" = ["T20", "D", "E501"]
+"cli/**" = ["T20"]
+"tests/**" = ["D", "ANN", "S"]
+# HTML and CSS literals: wrapping a style rule or a template row across lines
+# makes the output harder to read, not easier.
+"evals/report.py" = ["E501"]
+
+[lint.pydocstyle]
+convention = "google"
