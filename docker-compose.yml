@@ -1,0 +1,373 @@
+# AgenticRAG local stack.
+#
+#   docker compose up -d            → data plane + API + worker + web
+#   docker compose --profile obs up -d   → adds OTel/Jaeger/Prometheus/Grafana/Langfuse
+#   docker compose --profile mcp up -d   → adds the six MCP servers
+#   docker compose --profile all up -d   → everything
+#
+# Every service has a healthcheck; `depends_on: condition: service_healthy`
+# means the API never starts against a half-booted datastore.
+
+x-api-env: &api-env
+  env_file: [.env]
+
+services:
+  # ── Data plane ────────────────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agrag-postgres
+    environment:
+      POSTGRES_USER: ${AGRAG_POSTGRES_USER:-agrag}
+      POSTGRES_PASSWORD: ${AGRAG_POSTGRES_PASSWORD:-agrag}
+      POSTGRES_DB: ${AGRAG_POSTGRES_DB:-agrag}
+    ports: ["${AGRAG_PORT_POSTGRES:-5432}:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/docker/postgres-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AGRAG_POSTGRES_USER:-agrag} -d ${AGRAG_POSTGRES_DB:-agrag}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [agrag]
+
+  redis:
+    image: redis:7-alpine
+    container_name: agrag-redis
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["${AGRAG_PORT_REDIS:-6379}:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [agrag]
+
+  opensearch:
+    image: opensearchproject/opensearch:2.15.0
+    container_name: agrag-opensearch
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    ports: ["${AGRAG_PORT_OPENSEARCH:-9200}:9200"]
+    volumes: [osdata:/usr/share/opensearch/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qE 'green|yellow'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [agrag]
+
+  minio:
+    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
+    container_name: agrag-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${AGRAG_MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${AGRAG_MINIO_SECRET_KEY:-minioadmin}
+    ports: ["${AGRAG_PORT_MINIO:-9000}:9000", "${AGRAG_PORT_MINIO_CONSOLE:-9001}:9001"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [agrag]
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-09-16T17-43-14Z
+    container_name: agrag-minio-init
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${AGRAG_MINIO_ACCESS_KEY:-minioadmin} ${AGRAG_MINIO_SECRET_KEY:-minioadmin} &&
+      mc mb -p local/${MINIO_BUCKET:-agrag-documents} &&
+      mc mb -p local/${MINIO_BACKUP_BUCKET:-agrag-backups} &&
+      mc encrypt set sse-s3 local/${MINIO_BUCKET:-agrag-documents} || true;
+      echo 'minio buckets ready'"
+    networks: [agrag]
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: agrag-neo4j
+    environment:
+      NEO4J_AUTH: ${AGRAG_NEO4J_USER:-neo4j}/${AGRAG_NEO4J_PASSWORD:-agrag-neo4j-password}
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_PLUGINS: '["apoc"]'
+    ports: ["${AGRAG_PORT_NEO4J_HTTP:-7474}:7474", "${AGRAG_PORT_NEO4J_BOLT:-7687}:7687"]
+    volumes: [neo4jdata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [agrag]
+
+  # ── Application ───────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: agrag-api
+    <<: *api-env
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    ports: ["${AGRAG_PORT_API:-8000}:8000"]
+    depends_on:
+      # Postgres is the only hard dependency, so it is the only one that gates
+      # startup. The rest are started alongside but do not block: the app probes
+      # each at boot and reports what is missing on /readyz, and waiting for
+      # them here would make the documented graceful degradation unreachable —
+      # if OpenSearch is slow or unhealthy the API would never start at all,
+      # rather than serving dense-only retrieval as the docs promise.
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+      opensearch: { condition: service_started }
+      minio: { condition: service_started }
+    volumes:
+      - ./apps/api:/app
+      - ./prompts:/prompts:ro
+      - hf-cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks: [agrag]
+
+  worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: agrag-worker
+    <<: *api-env
+    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "-l", "info", "-Q", "ingestion,default", "--concurrency", "2"]
+    depends_on:
+      api: { condition: service_healthy }
+    volumes:
+      - ./apps/api:/app
+      - ./prompts:/prompts:ro
+      - hf-cache:/root/.cache/huggingface
+    networks: [agrag]
+
+  beat:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: agrag-beat
+    <<: *api-env
+    command: ["celery", "-A", "src.workers.celery_app:celery_app", "beat", "-l", "info"]
+    depends_on:
+      api: { condition: service_healthy }
+    volumes: [./apps/api:/app]
+    networks: [agrag]
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      target: runner
+    container_name: agrag-web
+    env_file: [.env]
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports: ["${AGRAG_PORT_WEB:-3000}:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    networks: [agrag]
+
+  # ── Observability (profile: obs) ───────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.109.0
+    container_name: agrag-otel
+    profiles: [obs, all]
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes: [./infra/otel/collector-config.yaml:/etc/otel/config.yaml:ro]
+    ports: ["4317:4317", "4318:4318", "8889:8889"]
+    depends_on: [jaeger]
+    networks: [agrag]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: agrag-jaeger
+    profiles: [obs, all]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports: ["${AGRAG_PORT_JAEGER:-16686}:16686"]
+    networks: [agrag]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: agrag-prometheus
+    profiles: [obs, all]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/alertmanager/rules:/etc/prometheus/rules:ro
+      - promdata:/prometheus
+    ports: ["${AGRAG_PORT_PROMETHEUS:-9090}:9090"]
+    networks: [agrag]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: agrag-alertmanager
+    profiles: [obs, all]
+    volumes: [./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro]
+    ports: ["${AGRAG_PORT_ALERTMANAGER:-9093}:9093"]
+    networks: [agrag]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: agrag-grafana
+    profiles: [obs, all]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports: ["${AGRAG_PORT_GRAFANA:-3001}:3000"]
+    depends_on: [prometheus]
+    networks: [agrag]
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: agrag-langfuse
+    profiles: [obs, all]
+    environment:
+      DATABASE_URL: postgresql://${AGRAG_POSTGRES_USER:-agrag}:${AGRAG_POSTGRES_PASSWORD:-agrag}@postgres:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3002
+      NEXTAUTH_SECRET: local-dev-langfuse-secret
+      SALT: local-dev-langfuse-salt
+      ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_INIT_ORG_ID: agrag
+      LANGFUSE_INIT_PROJECT_ID: agrag
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local}
+      LANGFUSE_INIT_USER_EMAIL: admin@agrag.local
+      LANGFUSE_INIT_USER_PASSWORD: agrag-local-admin
+    ports: ["${AGRAG_PORT_LANGFUSE:-3002}:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [agrag]
+
+  # ── MCP servers (profile: mcp) ─────────────────────────────────────────────
+  mcp-docs-search:
+    build:
+      context: ./mcp-servers/docs-search
+    container_name: agrag-mcp-docs-search
+    profiles: [mcp, all]
+    env_file: [.env]
+    ports: ["8101:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks: [agrag]
+
+  mcp-sql-analytics:
+    build:
+      context: ./mcp-servers/sql-analytics
+    container_name: agrag-mcp-sql-analytics
+    profiles: [mcp, all]
+    env_file: [.env]
+    ports: ["8102:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks: [agrag]
+
+  mcp-web-fetch:
+    build:
+      context: ./mcp-servers/web-fetch
+    container_name: agrag-mcp-web-fetch
+    profiles: [mcp, all]
+    env_file: [.env]
+    ports: ["8103:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks: [agrag]
+
+  mcp-calculator:
+    build:
+      context: ./mcp-servers/calculator
+    container_name: agrag-mcp-calculator
+    profiles: [mcp, all]
+    env_file: [.env]
+    ports: ["8104:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks: [agrag]
+
+  mcp-kg-query:
+    build:
+      context: ./mcp-servers/kg-query
+    container_name: agrag-mcp-kg-query
+    profiles: [mcp, all]
+    env_file: [.env]
+    ports: ["8105:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks: [agrag]
+
+  mcp-code-exec:
+    build:
+      context: ./mcp-servers/code-exec
+    container_name: agrag-mcp-code-exec
+    profiles: [mcp, all]
+    env_file: [.env]
+    ports: ["8106:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    networks: [agrag]
+
+networks:
+  agrag:
+    name: agrag
+
+volumes:
+  pgdata:
+  redisdata:
+  osdata:
+  miniodata:
+  neo4jdata:
+  hf-cache:
