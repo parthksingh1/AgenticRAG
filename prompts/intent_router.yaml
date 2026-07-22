@@ -1,0 +1,62 @@
+name: intent_router
+description: >-
+  Classifies an incoming turn so the graph can route it. Getting this wrong is
+  cheap in one direction and expensive in the other: mislabelling a simple
+  question as multi-hop wastes a few hundred tokens, while mislabelling a
+  multi-hop question as simple produces a confidently incomplete answer. The
+  prompt is biased accordingly.
+active: v2
+
+versions:
+  v1:
+    author: initial
+    changelog: First version. Labels only, no reasoning.
+    tested_with: claude-haiku-4-5-20251001
+    variables: [question]
+    template: |
+      Classify the question as one of: simple_qa, multi_hop, tool_using,
+      clarification_needed, out_of_scope. Reply with the label only.
+
+      Question: {{ question }}
+
+  v2:
+    author: initial
+    changelog: >-
+      Added definitions and tie-breaking rules. v1 collapsed multi_hop into
+      simple_qa on about a fifth of the golden set's comparative questions,
+      because "which is cheaper, A or B" reads as a single question until you
+      notice it needs two retrievals.
+    tested_with: claude-haiku-4-5-20251001
+    variables: [question, conversation_summary, has_tools]
+    template: |
+      Classify the user's question into exactly one category.
+
+      Categories:
+      - simple_qa: answerable from one retrieval over the documents.
+      - multi_hop: needs two or more separate retrievals, then a comparison or
+        synthesis. Comparisons, rankings and "how does X relate to Y" belong here
+        even when they read like one question.
+      - tool_using: needs computation, live data, a database query or code
+        execution — not just document lookup.
+      - clarification_needed: genuinely ambiguous, such that answering either
+        reading would likely be wrong. Do not use this for questions that are
+        merely broad.
+      - out_of_scope: nothing to do with the user's documents or workspace.
+
+      Tie-breaking:
+      - When torn between simple_qa and multi_hop, choose multi_hop. An extra
+        retrieval is cheap; a confidently incomplete answer is not.
+      - When torn between clarification_needed and anything else, choose the
+        other. Asking the user to rephrase is a poor default.
+      {% if not has_tools %}
+      - Tools are unavailable in this workspace, so never answer tool_using.
+      {% endif %}
+      {% if conversation_summary %}
+
+      Earlier in this conversation:
+      {{ conversation_summary }}
+      {% endif %}
+
+      Question: {{ question }}
+
+      Reply with the category name and nothing else.
