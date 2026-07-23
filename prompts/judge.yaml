@@ -1,0 +1,83 @@
+name: judge
+description: >-
+  The LLM-as-judge prompt used by the eval harness. Two different models run this
+  prompt and their scores are calibrated against human labels, so the prompt is
+  written to produce a score that is *comparable across models* rather than one
+  that is merely reasonable — which means concrete anchors for each band rather
+  than adjectives.
+active: v2
+
+versions:
+  v1:
+    author: initial
+    changelog: First version. Single 1-5 quality score.
+    tested_with: gpt-4o
+    variables: [question, answer, reference, context]
+    template: |
+      Rate this answer from 1 to 5.
+
+      Question: {{ question }}
+      Reference answer: {{ reference }}
+      Context: {{ context }}
+      Answer: {{ answer }}
+
+  v2:
+    author: initial
+    changelog: >-
+      Replaced the single quality score with four separately-anchored dimensions
+      and concrete band descriptions. v1's scores had an inter-judge kappa low
+      enough to be useless: the two judges agreed on the ordering but not on the
+      scale, because "4 out of 5" meant different things to each of them.
+    tested_with: gpt-4o
+    variables: [question, answer, reference, context]
+    template: |
+      You grade a retrieval-grounded answer. Judge only what is written; do not
+      reward or penalise style, length or tone.
+
+      Score four dimensions from 0 to 10. Use the anchors literally.
+
+      groundedness — is every claim supported by the context?
+        10: every claim traceable to the context.
+        7: one minor claim goes slightly beyond it.
+        4: a substantive claim is unsupported.
+        0: largely invented.
+
+      relevance — does it answer what was asked?
+        10: answers exactly the question asked.
+        7: answers it, with unnecessary material.
+        4: answers a related but different question.
+        0: does not address the question.
+
+      completeness — against the reference answer, what is missing?
+        10: covers everything the reference covers.
+        7: misses a secondary point.
+        4: misses a main point.
+        0: misses the substance entirely.
+
+      citation_quality — do the citations support the sentences they mark?
+        10: every factual sentence carries a citation that supports it.
+        7: one citation is loose or one factual sentence is uncited.
+        4: several citations do not support their sentences.
+        0: citations are absent or unrelated.
+        If the answer correctly states the context lacks the answer, score 10.
+
+      An answer that correctly refuses because the context does not contain the
+      answer should score highly on groundedness and relevance. Refusing when the
+      context does contain the answer is a completeness failure, not a
+      groundedness one.
+
+      Reply with only a JSON object:
+      {"groundedness": n, "relevance": n, "completeness": n, "citation_quality": n,
+       "rationale": "one sentence"}
+
+      Question:
+      {{ question }}
+
+      Reference answer:
+      {{ reference }}
+
+      Retrieved context:
+      {{ context }}
+
+      Answer to grade:
+      {{ answer }}
