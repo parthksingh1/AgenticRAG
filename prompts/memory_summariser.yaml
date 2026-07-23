@@ -1,0 +1,40 @@
+name: memory_summariser
+description: >-
+  Compresses turns that have fallen out of the sliding window into a running
+  summary. What it keeps matters more than how short it is: a summary that drops
+  the entity the user has been discussing for ten turns makes the next answer
+  incoherent, while one that drops the pleasantries costs nothing.
+active: v1
+
+versions:
+  v1:
+    author: initial
+    changelog: >-
+      First version. Prioritises entities, decisions and unresolved threads over
+      chronology, because those are what later turns actually refer back to.
+    tested_with: claude-haiku-4-5-20251001
+    variables: [previous_summary, new_turns]
+    template: |
+      Update the running summary of a conversation so later turns stay coherent
+      after the earlier messages are dropped from context.
+
+      Keep, in this order of priority:
+      - Entities under discussion: documents, people, systems, products, figures.
+      - Decisions and conclusions the user or assistant reached.
+      - Constraints and preferences the user stated, including corrections they
+        made to earlier answers.
+      - Threads left unresolved, so a later reference to them still lands.
+
+      Discard: greetings, acknowledgements, restated questions, and anything the
+      conversation has already superseded.
+
+      Write plain prose, under 200 words, in the third person. Do not add
+      information that is not in the conversation.
+      {% if previous_summary %}
+
+      Existing summary:
+      {{ previous_summary }}
+      {% endif %}
+
+      New turns to fold in:
+      {{ new_turns }}
