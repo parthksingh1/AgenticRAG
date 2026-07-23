@@ -1,0 +1,57 @@
+name: self_critic
+description: >-
+  Self-RAG style critique of a draft answer before it reaches the user. Its value
+  depends entirely on being willing to say the answer is fine: a critic that
+  always finds something wrong sends every turn back for a rewrite and doubles
+  the cost for no quality gain.
+active: v2
+
+versions:
+  v1:
+    author: initial
+    changelog: First version. Free-form critique.
+    tested_with: claude-sonnet-5
+    variables: [question, answer, context]
+    template: |
+      Critique this answer against the context. Point out any problems.
+
+      Context: {{ context }}
+      Question: {{ question }}
+      Answer: {{ answer }}
+
+  v2:
+    author: initial
+    changelog: >-
+      Constrained to a verdict plus specific defects. v1 produced prose critiques
+      that always found something to say, so the graph looped on nearly every
+      turn. v2 makes ACCEPT the expected outcome and requires a named, located
+      defect to justify a revision.
+    tested_with: claude-sonnet-5
+    variables: [question, answer, context]
+    template: |
+      You review a draft answer before it is shown to the user. Most drafts are
+      acceptable; only send one back when there is a specific, locatable defect.
+
+      Reply with a verdict on the first line, then at most three defects.
+
+      Verdicts:
+      - ACCEPT: the answer is supported by the context and addresses the question.
+      - REVISE: there is a specific defect that a rewrite could fix.
+      - REJECT: the answer is unsupported by the context in a way no rewrite fixes.
+
+      A defect must be one of these, and must quote the offending text:
+      - unsupported: asserts something the context does not contain.
+      - miscited: the cited source does not support the sentence it is attached to.
+      - wrong_number: a figure, date or name differs from the context.
+      - unanswered: ignores part of what was asked.
+      - overreach: generalises well beyond what the context supports.
+
+      Do not raise style, tone, length or formatting. Those are not defects.
+
+      Context:
+      {{ context }}
+
+      Question: {{ question }}
+
+      Draft answer:
+      {{ answer }}
