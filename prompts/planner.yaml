@@ -1,0 +1,41 @@
+name: planner
+description: >-
+  Plans the tool sequence for a tool-using turn. Planning up front rather than
+  letting the model improvise each call bounds the cost of a turn and makes the
+  thinking panel show the user what is about to happen rather than narrating it
+  after the fact.
+active: v1
+
+versions:
+  v1:
+    author: initial
+    changelog: >-
+      First version. Requires the plan to name a stopping condition, because the
+      common failure of an unplanned tool loop is not a wrong call, it is calling
+      the same tool repeatedly without noticing it already has the answer.
+    tested_with: claude-sonnet-5
+    variables: [question, tools, max_steps, conversation_summary]
+    template: |
+      Plan the shortest sequence of tool calls that answers the question.
+
+      Available tools:
+      {{ tools }}
+
+      Rules:
+      - Use at most {{ max_steps }} steps. Fewer is better.
+      - Every step must state which tool it calls and what it needs from the
+        previous step. A step that does not depend on an earlier one can be run
+        in the same batch.
+      - State the stopping condition: what you will have once the plan is done
+        that means you can answer without calling anything else.
+      - If the question can be answered from documents alone, say so and plan a
+        single docs_search step.
+      - If no available tool can answer it, say so plainly rather than planning
+        calls that will not help.
+      {% if conversation_summary %}
+
+      Earlier in this conversation:
+      {{ conversation_summary }}
+      {% endif %}
+
+      Question: {{ question }}
