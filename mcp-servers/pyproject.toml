@@ -1,0 +1,47 @@
+[project]
+name = "agrag-mcp-servers"
+version = "1.0.0"
+description = "The six MCP tool servers for AgenticRAG"
+requires-python = ">=3.11"
+
+# Each server is deployed as its own image from its own requirements.txt; this
+# file exists so the whole set can be tested together from one place.
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.3",
+  "pytest-asyncio>=0.24.0",
+  "httpx>=0.27.2",
+  "fastapi>=0.115.0",
+  "sympy>=1.13.3",
+  "pint>=0.24.3",
+  "python-dateutil>=2.9.0",
+  "sqlparse>=0.5.1",
+  "RestrictedPython>=7.3",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+  "slow: takes several seconds (the sandbox timeout tests genuinely wait)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "BLE", "C4", "SIM", "S", "RET", "D", "ANN", "RUF"]
+ignore = ["D203", "D213", "ANN101", "ANN102", "ANN401", "S101"]
+
+[tool.ruff.lint.per-file-ignores]
+# The sandbox deliberately calls exec on compiled-restricted bytecode.
+"code-exec/sandbox.py" = ["S102"]
+"tests/**" = ["D", "ANN", "S105", "S106"]
+"conftest.py" = ["ANN401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
