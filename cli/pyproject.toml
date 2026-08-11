@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agrag-cli"
+version = "0.1.0"
+description = "Command-line client for AgenticRAG"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["agrag>=0.1.0"]
+
+[project.scripts]
+agrag = "agrag_cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agrag_cli"]
