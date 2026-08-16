@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Colours are declared once as RGB triples so Tailwind's <alpha-value> works
+   and the dark theme redefines only the tokens, never the components. */
+:root {
+  --bg: 255 255 255;
+  --fg: 22 24 29;
+  --muted: 107 114 128;
+  --line: 229 231 235;
+  --card: 249 250 251;
+  --accent: 79 70 229;
+}
+
+.dark {
+  --bg: 15 17 21;
+  --fg: 230 232 235;
+  --muted: 156 163 175;
+  --line: 38 43 51;
+  --card: 22 26 32;
+  --accent: 129 140 248;
+}
+
+html { color-scheme: light dark; }
+
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--fg));
+  font-feature-settings: "cv02", "cv03", "cv04";
+}
+
+/* Respect the setting rather than animating regardless. Motion sickness is not
+   a hypothetical, and a chat UI animates constantly. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* A visible focus ring everywhere. Removing it for aesthetics makes the app
+   unusable by keyboard, which is not a trade worth making. */
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}
+
+.prose-answer :where(p, ul, ol) { margin-block: 0.6em; }
+.prose-answer :where(ul, ol) { padding-inline-start: 1.4em; }
+.prose-answer :where(ul) { list-style: disc; }
+.prose-answer :where(ol) { list-style: decimal; }
+.prose-answer :where(code) {
+  background: rgb(var(--card));
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+  font-size: 0.9em;
+}
+.prose-answer :where(pre) {
+  background: rgb(var(--card));
+  border: 1px solid rgb(var(--line));
+  border-radius: 8px;
+  padding: 0.8rem;
+  overflow-x: auto;
+}
+.prose-answer :where(table) { width: 100%; border-collapse: collapse; }
+.prose-answer :where(th, td) {
+  border-bottom: 1px solid rgb(var(--line));
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
