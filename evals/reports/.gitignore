@@ -1,0 +1,5 @@
+# Reports are build artefacts: a run writes a new timestamped pair every time,
+# and committing them would add a few hundred kilobytes of HTML per run to the
+# history. The baseline under evals/baselines/ is what is tracked instead.
+*
+!.gitignore
