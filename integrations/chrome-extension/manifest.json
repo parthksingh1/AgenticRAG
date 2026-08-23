@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "AgenticRAG",
+  "version": "0.1.0",
+  "description": "Ask your indexed corpus about the page you are reading, or save the page to it.",
+  "permissions": ["activeTab", "storage", "scripting", "contextMenus"],
+  "host_permissions": ["http://localhost:8000/*"],
+  "action": { "default_popup": "popup.html", "default_title": "Ask AgenticRAG" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "options_page": "options.html"
+}
