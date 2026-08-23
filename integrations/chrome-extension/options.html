@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AgenticRAG options</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        max-width: 480px; margin: 3rem auto; padding: 0 1rem;
+        font: 14px/1.6 system-ui, sans-serif;
+      }
+      label { display: block; margin-top: 1rem; font-weight: 600; }
+      input {
+        width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px;
+        border: 1px solid rgba(128, 128, 128, 0.35); border-radius: 8px;
+        background: transparent; color: inherit; font: inherit;
+      }
+      button {
+        margin-top: 1.25rem; padding: 8px 16px; border: 0; border-radius: 8px;
+        background: #4f46e5; color: #fff; font: inherit; cursor: pointer;
+      }
+      p.hint { opacity: 0.7; font-size: 12px; margin-top: 0.25rem; }
+      #status { margin-top: 1rem; color: #16a34a; }
+    </style>
+  </head>
+  <body>
+    <h1>AgenticRAG</h1>
+
+    <label for="apiUrl">API URL</label>
+    <input id="apiUrl" type="url" placeholder="http://localhost:8000" />
+    <p class="hint">Must also appear in the manifest's host_permissions.</p>
+
+    <label for="apiKey">API key</label>
+    <input id="apiKey" type="password" placeholder="agr_..." />
+    <p class="hint">
+      Stored in extension-local storage, not synced. An API key is a credential,
+      and syncing puts a copy on every machine signed into the same account.
+    </p>
+
+    <button id="save">Save</button>
+    <div id="status" role="status"></div>
+    <script src="options.js"></script>
+  </body>
+</html>
