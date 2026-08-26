@@ -1,0 +1,68 @@
+# Alert thresholds mirror the SLOs documented in docs/ARCHITECTURE.md.
+groups:
+  - name: agrag-latency
+    rules:
+      - alert: HighTimeToFirstToken
+        expr: histogram_quantile(0.95, sum by (le) (rate(rag_ttft_ms_bucket[5m]))) > 3000
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 time-to-first-token above 3s"
+          description: "p95 TTFT is {{ $value | humanize }}ms over the last 5m (SLO: 3000ms)."
+
+      - alert: HighRetrievalLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(rag_retrieval_latency_ms_bucket[5m]))) > 1500
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 retrieval latency above 1.5s"
+
+  - name: agrag-reliability
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.01
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "API 5xx error rate above 1%"
+
+      - alert: MCPServerDown
+        expr: up{service="mcp"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "MCP server {{ $labels.instance }} is unreachable"
+
+  - name: agrag-quality
+    rules:
+      - alert: HallucinationRateHigh
+        expr: |
+          sum(rate(rag_hallucination_detected_total[30m]))
+            / clamp_min(sum(rate(rag_answers_total[30m])), 1) > 0.05
+        for: 30m
+        labels: { severity: critical }
+        annotations:
+          summary: "Hallucination detection rate above 5%"
+          description: "Groundedness has degraded; check the failure explorer at /admin/failures."
+
+      - alert: GuardrailBlockSpike
+        expr: sum(rate(rag_guardrail_blocks_total{kind="prompt_injection"}[10m])) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Prompt-injection blocks spiking — possible attack in progress"
+
+  - name: agrag-cost
+    rules:
+      # 3-sigma anomaly against the trailing 24h mean of hourly spend.
+      - alert: CostAnomaly
+        expr: |
+          (sum by (tenant_id) (increase(rag_cost_usd_total[1h])))
+            > (avg_over_time(sum by (tenant_id) (increase(rag_cost_usd_total[1h]))[24h:1h])
+               + 3 * stddev_over_time(sum by (tenant_id) (increase(rag_cost_usd_total[1h]))[24h:1h]))
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }} hourly spend is >3σ above its 24h baseline"
