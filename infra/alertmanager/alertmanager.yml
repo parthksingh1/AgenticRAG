@@ -1,0 +1,23 @@
+route:
+  receiver: default
+  group_by: [alertname, severity, tenant_id]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="critical"]
+      receiver: default
+      repeat_interval: 1h
+
+receivers:
+  - name: default
+    # Local dev: no-op sink. In production this is a Slack/PagerDuty webhook
+    # supplied via infra/terraform. Never hardcode a webhook URL here.
+    webhook_configs:
+      - url: http://api:8000/internal/alerts
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [alertname, tenant_id]
