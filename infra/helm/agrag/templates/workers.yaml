@@ -1,0 +1,177 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agrag.fullname" . }}-worker
+  labels: {{- include "agrag.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "agrag.name" . }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "agrag.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      annotations:
+        checksum/secret: {{ .Values.secrets.existingSecret | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: {{ include "agrag.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - src.workers.celery_app
+            - worker
+            - --loglevel=info
+            - --concurrency={{ .Values.worker.concurrency }}
+            - --queues=ingestion,batch,celery
+            # Restart a worker process after 50 tasks. Parsers leak — PDF
+            # libraries especially — and a periodic restart is cheaper than
+            # chasing which one.
+            - --max-tasks-per-child=50
+          {{- include "agrag.env" . | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: cache, mountPath: /home/app/.cache }
+          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          livenessProbe:
+            # `celery inspect ping` asks the worker to answer over the broker,
+            # which is the only check that distinguishes a live worker from a
+            # process that is running and consuming nothing.
+            exec:
+              command: ["celery", "-A", "src.workers.celery_app", "inspect", "ping", "-d", "celery@$HOSTNAME"]
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 3
+      # Long enough to finish ingesting a large document. `task_acks_late` means
+      # an interrupted task is redelivered rather than lost, but finishing is
+      # still better than redoing.
+      terminationGracePeriodSeconds: 300
+      volumes:
+        - { name: tmp, emptyDir: { sizeLimit: 8Gi } }
+        - { name: cache, emptyDir: { sizeLimit: 4Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agrag.fullname" . }}-beat
+  labels: {{- include "agrag.labels" . | nindent 4 }}
+spec:
+  # Exactly one, always. Two beat schedulers means every periodic task fires
+  # twice: two nightly backups racing, two drift snapshots colliding on the
+  # unique constraint, two recalibrations retiring each other's rows.
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: a rolling update would briefly run two
+    # schedulers, which is the exact thing replicas: 1 exists to prevent.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "agrag.name" . }}
+      app.kubernetes.io/component: beat
+  template:
+    metadata:
+      labels:
+        {{- include "agrag.labels" . | nindent 8 }}
+        app.kubernetes.io/component: beat
+      annotations:
+        checksum/secret: {{ .Values.secrets.existingSecret | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: beat
+          image: {{ include "agrag.image" . }}
+          command: ["celery", "-A", "src.workers.celery_app", "beat", "--loglevel=info"]
+          {{- include "agrag.env" . | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: schedule, mountPath: /tmp }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 256Mi }
+      volumes:
+        - { name: schedule, emptyDir: {} }
+---
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "agrag.fullname" . }}
+  labels: {{- include "agrag.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "agrag.name" . }}
+      app.kubernetes.io/component: api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}
+---
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "agrag.fullname" . }}
+  labels: {{- include "agrag.labels" . | nindent 4 }}
+  annotations: {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ include "agrag.fullname" . }}-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "agrag.fullname" . }}-api
+                port: { name: http }
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "agrag.fullname" . }}-api
+spec:
+  # Default-deny ingress, then allow what is needed. The alternative — an open
+  # pod network — means a compromise anywhere in the cluster reaches the API
+  # directly, past the ingress and past its authentication.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "agrag.name" . }}
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+      ports:
+        - { protocol: TCP, port: 8000 }
