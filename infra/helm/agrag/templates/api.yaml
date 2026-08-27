@@ -1,0 +1,155 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agrag.fullname" . }}-api
+  labels: {{- include "agrag.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.api.autoscaling.enabled }}
+  replicas: {{ .Values.api.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "agrag.name" . }}
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never fewer pods than we started with during a rollout. A deploy that
+      # briefly halves capacity is a deploy that causes an incident at peak.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "agrag.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      annotations:
+        # Roll the pods when the secret changes. Without this a rotated
+        # credential sits unused until something unrelated triggers a restart.
+        checksum/secret: {{ .Values.secrets.existingSecret | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      # Spread across nodes so losing one does not take the whole service.
+      # Preferred, not required, so a single-node cluster still schedules.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: {{ include "agrag.name" . }}
+                    app.kubernetes.io/component: api
+      containers:
+        - name: api
+          image: {{ include "agrag.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 8000 }
+          {{- include "agrag.env" . | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            # The root filesystem is read-only, so anything that writes needs an
+            # explicit mount. Model downloads and tempfiles are the two.
+            - { name: tmp, mountPath: /tmp }
+            - { name: cache, mountPath: /home/app/.cache }
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+
+          # Three probes, doing three different jobs. Collapsing them into one
+          # is the most common way to make a rollout worse than no rollout.
+          startupProbe:
+            # Model loading can take a minute on a cold node. Without a startup
+            # probe the liveness probe kills the pod before it ever starts.
+            httpGet: { path: /healthz, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            # Readiness gates traffic. It checks dependencies, so a pod whose
+            # database connection is broken stops receiving requests.
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            # Liveness restarts the pod, so it must NOT check dependencies.
+            # A liveness probe that fails when Postgres is briefly unreachable
+            # restarts every pod at once and turns a blip into an outage.
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+
+          lifecycle:
+            preStop:
+              # Sleep before shutdown so the load balancer stops sending traffic
+              # before the process stops accepting it. Without it, in-flight
+              # requests are dropped on every rollout.
+              exec: { command: ["sleep", "10"] }
+      # Long enough for a streaming answer to finish rather than being cut off
+      # mid-sentence.
+      terminationGracePeriodSeconds: 60
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: cache, emptyDir: { sizeLimit: 4Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agrag.fullname" . }}-api
+  labels: {{- include "agrag.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - { name: http, port: 80, targetPort: http }
+  selector:
+    app.kubernetes.io/name: {{ include "agrag.name" . }}
+    app.kubernetes.io/component: api
+---
+{{- if .Values.api.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "agrag.fullname" . }}-api
+  labels: {{- include "agrag.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "agrag.fullname" . }}-api
+  minReplicas: {{ .Values.api.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }} }
+  behavior:
+    scaleDown:
+      # Slow to scale down, quick to scale up. Halving capacity five minutes
+      # into a lull, right before the traffic returns, costs far more than the
+      # pods that were kept.
+      stabilizationWindowSeconds: 600
+      policies: [{ type: Percent, value: 50, periodSeconds: 120 }]
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies: [{ type: Percent, value: 100, periodSeconds: 30 }]
+{{- end }}
+---
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "agrag.fullname" . }}-api
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "agrag.name" . }}
+      app.kubernetes.io/component: api
+{{- end }}
