@@ -1,0 +1,68 @@
+# Defaults are production-shaped, not demo-shaped.
+#
+# A chart whose defaults are "one replica, no limits, no probes" installs
+# cleanly and falls over the first time a node is drained. These defaults cost
+# more to run and survive an ordinary Tuesday.
+
+image:
+  repository: ghcr.io/OWNER/agentic-rag/api
+  # Never `latest`. A pod rescheduled at 3am must run the same image the one it
+  # replaced was running, and `latest` cannot promise that.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+api:
+  replicas: 3
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { memory: 2Gi }
+    # No CPU limit on purpose. CPU throttling on a latency-sensitive service
+    # turns a busy moment into a p99 cliff; the request is what scheduling needs.
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+
+worker:
+  replicas: 2
+  concurrency: 1        # ingestion is memory-hungry; one document per process
+  resources:
+    requests: { cpu: 1, memory: 2Gi }
+    limits: { memory: 4Gi }
+
+beat:
+  # Exactly one. Two schedulers means every periodic task runs twice, and the
+  # nightly backup racing itself is not a good way to find that out.
+  replicas: 1
+
+config:
+  logLevel: INFO
+  embeddingModel: BAAI/bge-large-en-v1.5
+  embeddingDim: 1024
+  retrievalTopK: 8
+
+# Every value here is a reference to a Secret, never a literal. A chart that
+# accepts inline secrets ends up with them in a values file in git.
+secrets:
+  existingSecret: agrag-secrets
+
+ingress:
+  enabled: true
+  className: nginx
+  host: api.example.com
+  tls: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    # SSE streams must not be buffered: buffering delivers the whole answer at
+    # once at the end, which defeats the point of streaming it.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
