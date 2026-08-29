@@ -1,0 +1,159 @@
+# The evals gate.
+#
+# Runs the golden and adversarial sets against a real, ephemeral stack on every
+# pull request that could change answer quality, compares against the committed
+# baseline, and posts a per-metric diff as a comment.
+#
+# Why it is a separate workflow from CI: this one costs money and needs
+# provider keys. Keeping it separate means a documentation pull request does not
+# spend $2 to prove nothing changed, and a fork's pull request — which cannot
+# read the secrets — fails one clearly-named check rather than the whole suite.
+name: Evals gate
+
+on:
+  pull_request:
+    paths:
+      # Only the paths that can move a metric. Everything else skips.
+      - "apps/api/src/**"
+      - "prompts/**"
+      - "evals/**"
+      - ".github/workflows/evals-gate.yml"
+  workflow_dispatch:
+    inputs:
+      set_name:
+        description: Which set to run
+        default: golden
+        type: choice
+        options: [golden, regression, adversarial]
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    name: Gate on ${{ github.event.inputs.set_name || 'golden' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: agrag
+          POSTGRES_PASSWORD: agrag
+          POSTGRES_DB: agrag
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agrag"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ["9000:9000"]
+
+    env:
+      AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag
+      AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag
+      AGRAG_REDIS_URL: redis://localhost:6379/0
+      AGRAG_MINIO_ENDPOINT: localhost:9000
+      AGRAG_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      AGRAG_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The baseline is compared against, so the merge-base history matters.
+          fetch-depth: 0
+
+      - name: Fork pull requests cannot run the gate
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::warning::Evals need provider keys, which fork pull requests cannot read."
+          echo "A maintainer will run the gate before merge."
+          exit 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e "apps/api[dev]"
+
+      - name: Migrate
+        working-directory: apps/api
+        run: alembic upgrade head
+
+      - name: Seed the demo tenant and corpus
+        run: python scripts/seed_demo_tenant.py --wait-for-index
+
+      - name: Start the API
+        run: |
+          (cd apps/api && uvicorn src.main:app --port 8000 --log-level warning &)
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8000/readyz >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:8000/readyz
+
+      - name: Run the set and gate on it
+        id: evals
+        run: |
+          python -m evals.run \
+            --set "${{ github.event.inputs.set_name || 'golden' }}" \
+            --gate \
+            --enforce-size \
+            --comment-out eval-comment.md \
+            --api-key "${{ secrets.AGRAG_DEMO_API_KEY }}"
+        env:
+          AGRAG_API_URL: http://localhost:8000
+
+      - name: Adversarial set — injection resistance has no tolerance
+        if: always() && github.event.inputs.set_name == ''
+        run: |
+          python -m evals.run --set adversarial --gate --enforce-size \
+            --api-key "${{ secrets.AGRAG_DEMO_API_KEY }}"
+        env:
+          AGRAG_API_URL: http://localhost:8000
+
+      - name: Comment the per-metric diff
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('eval-comment.md')) return;
+            const body = fs.readFileSync('eval-comment.md', 'utf8');
+            const marker = '<!-- agrag-evals -->';
+
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes(marker));
+
+            // Updated in place rather than appended: a pull request with eight
+            // pushes should show one current result, not eight stale ones.
+            const payload = { ...context.repo, body: `${marker}\n${body}` };
+            if (existing) {
+              await github.rest.issues.updateComment({ ...payload, comment_id: existing.id });
+            } else {
+              await github.rest.issues.createComment({ ...payload, issue_number: context.issue.number });
+            }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-reports
+          path: evals/reports/
+          retention-days: 30
