@@ -1,0 +1,266 @@
+# Lint, type-check and test on every push and pull request.
+#
+# Split into independent jobs rather than one long one so a lint failure reports
+# in forty seconds instead of after the integration suite has finished. The jobs
+# that need Docker declare services; the ones that do not stay fast.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A new push supersedes the run in flight for the same ref. Without this, a
+  # branch pushed three times in a minute runs three full suites and the first
+  # two are already irrelevant.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  lint-python:
+    name: Lint & type-check (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e "apps/api[dev]"
+      - name: ruff (api)
+        run: ruff check apps/api && ruff format --check apps/api
+      - name: ruff (evals, scripts, cli)
+        run: ruff check . && ruff format --check .
+      - name: mypy
+        run: mypy apps/api/src
+        working-directory: .
+      - name: bandit
+        run: bandit -c apps/api/pyproject.toml -r apps/api/src mcp-servers -q
+
+  test-unit:
+    name: Unit tests & doctests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e "apps/api[dev]"
+      - name: pytest
+        working-directory: apps/api
+        run: pytest tests/unit --doctest-modules src -q --cov=src --cov-report=xml --cov-report=term-missing
+      - name: Contract tests against the OpenAPI schema
+        working-directory: apps/api
+        # The schema generates the SDKs and the frontend's expectations, so one
+        # that lies produces clients wrong in ways their own tests cannot see.
+        run: pytest tests/contract -q -m contract
+      - name: Coverage gates for the parts that must not regress
+        working-directory: apps/api
+        # Guardrails and retrieval fusion are held at 100% separately from the
+        # project-wide gate. They are the two places where a silent behaviour
+        # change is both easy to introduce and expensive to discover in
+        # production.
+        run: |
+          pytest tests/unit -q \
+            --cov=src/guardrails --cov=src/retrieval/fusion.py \
+            --cov-fail-under=100 --cov-report=term-missing --cov-branch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: apps/api/coverage.xml
+
+  test-mcp:
+    name: MCP server tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e "mcp-servers[dev]"
+      - run: pytest mcp-servers -q
+
+  test-integration:
+    name: Integration tests (Postgres, Redis, OpenSearch)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: agrag
+          POSTGRES_PASSWORD: agrag
+          POSTGRES_DB: agrag_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agrag"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e "apps/api[dev]"
+      - name: Migrate
+        working-directory: apps/api
+        env:
+          AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag_test
+          AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag_test
+        run: alembic upgrade head
+      - name: Integration suite
+        working-directory: apps/api
+        env:
+          AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag_test
+          AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag_test
+          AGRAG_REDIS_URL: redis://localhost:6379/0
+        run: pytest tests/integration -q -m integration
+
+  tenant-isolation:
+    name: Tenant isolation
+    runs-on: ubuntu-latest
+    # Run separately and named separately so that a cross-tenant leak is
+    # unmissable in the checks list rather than one line inside a 900-test run.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e "apps/api[dev]"
+      - working-directory: apps/api
+        run: pytest tests/unit/test_tenant_isolation.py -q -v
+
+  evals-offline:
+    name: Eval harness (offline)
+    runs-on: ubuntu-latest
+    # Exercises the datasets, runner, gate and report without a provider bill.
+    # It proves the harness works; it measures nothing about answer quality, and
+    # the report it produces is stamped as such.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e "apps/api[dev]"
+      - name: Sets are the committed size and shape
+        run: python -m evals.run --set golden --offline --enforce-size --limit 1
+      - run: python -m evals.run --set adversarial --offline --enforce-size --limit 1
+      - run: python -m evals.run --set regression --offline --enforce-size --limit 1
+      - name: Regenerating the sets is a no-op
+        # If this fails, someone edited a JSONL by hand instead of editing the
+        # fact table, and the next regeneration would silently revert them.
+        run: |
+          python -m evals.scripts.build_sets
+          git diff --exit-code evals/golden_sets evals/regression_set evals/adversarial_set
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - working-directory: apps/web
+        run: npm ci
+      - name: Type-check
+        working-directory: apps/web
+        run: npm run typecheck
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+      - name: Unit tests
+        working-directory: apps/web
+        run: npm run test -- --run
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    # E2E hits a real model, so it is slow and costs money. It runs on main and
+    # on demand, not on every push — a suite people cancel because it takes
+    # twenty minutes is a suite that stops being read.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: agrag
+          POSTGRES_PASSWORD: agrag
+          POSTGRES_DB: agrag
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agrag"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag
+      AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag
+      AGRAG_REDIS_URL: redis://localhost:6379/0
+      AGRAG_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: pip install -e "apps/api[dev]"
+      - working-directory: apps/api
+        run: alembic upgrade head
+      - run: python scripts/seed_demo_tenant.py --wait-for-index
+      - name: Start the API
+        run: |
+          (cd apps/api && uvicorn src.main:app --port 8000 --log-level warning &)
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8000/readyz >/dev/null && break
+            sleep 2
+          done
+      - working-directory: apps/web
+        run: npm ci
+      - working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - working-directory: apps/web
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+
+  docker:
+    name: Compose builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: docker compose build api worker web
+      - name: Compose config is valid, including profiles
+        run: |
+          docker compose config -q
+          docker compose --profile obs --profile mcp config -q
