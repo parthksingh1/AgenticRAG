@@ -1,0 +1,145 @@
+# Deployment.
+#
+# Canary rather than all-at-once: 10% of traffic, then 50%, then everything,
+# with the error rate and p95 checked between each step. A bad deploy is then
+# caught by the first 10% instead of by every user simultaneously.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Never two deploys at once. cancel-in-progress is deliberately off: killing a
+  # rollout halfway leaves the traffic weights wherever they happened to be.
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    name: Build and push images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          push: true
+          # Tagged with the commit as well as latest, so a rollback names a
+          # specific build rather than "whatever latest was an hour ago".
+          tags: |
+            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  migrate:
+    name: Migrate
+    needs: images
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e apps/api
+      - name: Apply migrations
+        # Migrations must be backward compatible with the currently-running
+        # code. During a canary, old and new run against one database at the
+        # same time, so dropping a column the old code still reads takes
+        # production down during the rollout rather than after it.
+        working-directory: apps/api
+        run: alembic upgrade head
+        env:
+          AGRAG_DATABASE_URL_SYNC: ${{ secrets.AGRAG_DATABASE_URL_SYNC }}
+
+  canary:
+    name: Canary rollout
+    needs: migrate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to 10% of traffic
+        run: |
+          flyctl deploy \
+            --image ghcr.io/${{ github.repository }}/api:${{ github.sha }} \
+            --strategy canary
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Hold at 10% and watch
+        run: python scripts/watch_canary.py --stage 10 --minutes 5
+        env:
+          PROMETHEUS_URL: ${{ secrets.PROMETHEUS_URL }}
+
+      - name: Promote to 50% and watch
+        run: python scripts/watch_canary.py --stage 50 --minutes 5
+        env:
+          PROMETHEUS_URL: ${{ secrets.PROMETHEUS_URL }}
+
+      - name: Promote to 100%
+        run: flyctl deploy --image ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Roll back
+        if: failure()
+        run: flyctl releases rollback --yes
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  frontend:
+    name: Frontend
+    needs: migrate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - working-directory: apps/web
+        run: npm ci
+      - name: Deploy to Vercel
+        working-directory: apps/web
+        run: npx vercel deploy --prod --token="$VERCEL_TOKEN" --yes
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  smoke:
+    name: Smoke test production
+    needs: [canary, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx
+      - name: The demo must actually answer a question
+        # The last line of defence. Every check above can pass while the demo
+        # returns a 500 to the first person who opens it.
+        run: python scripts/smoke_test.py --url "${{ secrets.PRODUCTION_URL }}"
