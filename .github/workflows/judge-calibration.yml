@@ -1,0 +1,60 @@
+# Weekly judge recalibration.
+#
+# The judges are language models, and a provider's silent update can move their
+# scores without any change on our side. A calibration measured once and trusted
+# forever is worse than none, because it carries an authority it no longer earns.
+#
+# Weekly rather than nightly: recalibration needs new human labels to be worth
+# recomputing, and those arrive at human speed.
+name: Judge calibration
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  recalibrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e "apps/api[dev]"
+
+      - name: Recompute calibration against the human labels
+        id: calibrate
+        run: python -m evals.scripts.calibrate_judges --write --report calibration.md
+        env:
+          AGRAG_DATABASE_URL: ${{ secrets.AGRAG_DATABASE_URL }}
+          AGRAG_DATABASE_URL_SYNC: ${{ secrets.AGRAG_DATABASE_URL_SYNC }}
+
+      - name: Open an issue when a judge has drifted
+        # A judge whose calibration error has grown materially is not a silent
+        # config change — it means recent eval numbers were weighted by a
+        # calibration that no longer holds, and somebody has to decide whether
+        # to re-run the baseline.
+        if: steps.calibrate.outputs.drifted == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('calibration.md', 'utf8');
+            await github.rest.issues.create({
+              ...context.repo,
+              title: `Judge calibration drifted (week of ${new Date().toISOString().slice(0, 10)})`,
+              body,
+              labels: ['evals', 'needs-decision'],
+            });
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: calibration
+          path: calibration.md
