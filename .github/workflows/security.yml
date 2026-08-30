@@ -1,0 +1,115 @@
+# Security scanning.
+#
+# Runs on every pull request and on a weekly schedule. The schedule matters more
+# than the pull-request run: most vulnerabilities appear in dependencies that
+# have not changed, so a scan that only runs on diffs never finds them.
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Monday 06:00 UTC — a finding lands at the start of the week rather than
+    # over a weekend where it sits unread.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  python-deps:
+    name: Python dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e "apps/api[dev]" pip-audit
+      - name: pip-audit
+        run: pip-audit --strict --desc
+
+  node-deps:
+    name: Node dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - working-directory: apps/web
+        run: npm ci
+      - name: npm audit
+        # High and above fails. Moderate findings in dev-only transitive
+        # dependencies would otherwise block every pull request with noise that
+        # nobody can act on.
+        working-directory: apps/web
+        run: npm audit --audit-level=high
+
+  code:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install bandit semgrep
+      - name: bandit
+        run: bandit -r apps/api/src mcp-servers -q -f sarif -o bandit.sarif || true
+      - name: semgrep
+        run: semgrep --config=p/python --config=p/security-audit --sarif -o semgrep.sarif . || true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: bandit.sarif
+          category: bandit
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  containers:
+    name: Container images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the API image
+        run: docker build -t agrag-api:scan apps/api
+      - name: trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: agrag-api:scan
+          format: sarif
+          output: trivy.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          # Unfixed findings are reported but do not fail: there is no action to
+          # take on a vulnerability with no patch, and failing on them trains
+          # people to ignore the check.
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  secrets:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret committed and then removed is still in the
+          # history and still valid until it is rotated.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
