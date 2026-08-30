@@ -1,0 +1,102 @@
+# Nightly full eval, published to GitHub Pages.
+#
+# The pull-request gate runs the golden set. This runs everything, nightly, so
+# the trend is visible over weeks — which is the only way to see the slow
+# degradations that no single pull request is responsible for.
+name: Nightly eval
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: nightly-eval
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      # Not fail-fast: if the golden set fails, the adversarial result is still
+      # worth having, and often says why.
+      fail-fast: false
+      matrix:
+        set: [golden, regression, adversarial]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: agrag
+          POSTGRES_PASSWORD: agrag
+          POSTGRES_DB: agrag
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agrag"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag
+      AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag
+      AGRAG_REDIS_URL: redis://localhost:6379/0
+      AGRAG_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      AGRAG_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e "apps/api[dev]"
+      - working-directory: apps/api
+        run: alembic upgrade head
+      - run: python scripts/seed_demo_tenant.py --wait-for-index
+      - name: Start the API
+        run: |
+          (cd apps/api && uvicorn src.main:app --port 8000 --log-level warning &)
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8000/readyz >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:8000/readyz
+      - name: Run the set
+        run: python -m evals.run --set ${{ matrix.set }} --enforce-size
+        env:
+          AGRAG_API_URL: http://localhost:8000
+          AGRAG_API_KEY: ${{ secrets.AGRAG_DEMO_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-${{ matrix.set }}
+          path: evals/reports/
+
+  publish:
+    name: Publish to Pages
+    needs: run
+    # Published even when a set failed: a failing nightly is exactly the report
+    # someone needs to read, and hiding it is the opposite of useful.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          path: reports
+          merge-multiple: true
+      - name: Build the index page
+        run: python scripts/build_eval_index.py reports site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
