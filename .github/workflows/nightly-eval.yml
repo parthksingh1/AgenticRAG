@@ -43,10 +43,24 @@ jobs:
       redis:
         image: redis:7-alpine
         ports: ["6379:6379"]
+      minio:
+        # scripts/seed_demo_tenant.py calls storage.ensure_buckets(), so any
+        # job that seeds needs object storage or the bucket call is refused.
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ["9000:9000"]
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 5s --health-timeout 5s --health-retries 30
     env:
       AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag
       AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag
       AGRAG_REDIS_URL: redis://localhost:6379/0
+      AGRAG_MINIO_ENDPOINT: localhost:9000
+      AGRAG_MINIO_ACCESS_KEY: minioadmin
+      AGRAG_MINIO_SECRET_KEY: minioadmin
       AGRAG_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       AGRAG_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
