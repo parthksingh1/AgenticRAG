@@ -145,6 +145,9 @@ jobs:
           AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag_test
           AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag_test
           AGRAG_REDIS_URL: redis://localhost:6379/0
+          # Short-circuits the testcontainers path so the suite uses the
+          # service container this job already runs.
+          AGRAG_TEST_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag_test
           AGRAG_MINIO_ENDPOINT: localhost:9000
           AGRAG_MINIO_ACCESS_KEY: minioadmin
           AGRAG_MINIO_SECRET_KEY: minioadmin

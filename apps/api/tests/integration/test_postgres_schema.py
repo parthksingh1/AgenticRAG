@@ -22,6 +22,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from src.core.config import get_settings
 
 #: Resolved once at import. Path.resolve() hits the filesystem, so doing it
 #: inside the async fixture is a blocking call on the event loop (ASYNC240).
@@ -73,7 +74,19 @@ async def migrated_engine(postgres_url: str) -> AsyncIterator[object]:
     config.set_main_option("script_location", str(_API_ROOT / "alembic"))
     config.set_main_option("sqlalchemy.url", postgres_url)
 
-    os.environ["DATABASE_URL"] = postgres_url
+    # alembic/env.py overwrites sqlalchemy.url from Settings, so setting it on
+    # the Config above is not enough -- the environment is what actually
+    # decides. These names carry the AGRAG_ prefix because Settings declares
+    # env_prefix; the bare DATABASE_URL this used to set stopped being read
+    # when that prefix was introduced, and the migration then ran against the
+    # default database instead of this one, leaving the test database empty.
+    os.environ["AGRAG_DATABASE_URL"] = postgres_url
+    os.environ["AGRAG_DATABASE_URL_SYNC"] = postgres_url.replace(
+        "postgresql+asyncpg://", "postgresql+psycopg://"
+    )
+    # Settings is lru_cached, so anything that read it earlier in the session
+    # pinned the old values; env.py would otherwise see a stale cache.
+    get_settings.cache_clear()
     # Alembic's runner drives its own event loop, so it runs in a thread rather
     # than inside the one pytest-asyncio already has open.
     await asyncio.to_thread(command.upgrade, config, "head")
