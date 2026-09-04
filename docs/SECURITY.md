@@ -166,6 +166,20 @@ pull request and weekly. The weekly run matters more: most vulnerabilities appea
 in dependencies that have not changed, so a scan that only runs on diffs never
 finds them.
 
+## Known accepted risks
+
+Recorded rather than silently suppressed, so that anyone reading the CI
+configuration can see what was decided and why.
+
+**`cryptography` 48.x — PYSEC-2026-3552, -3553, -3554.** Fixed upstream in
+49.0.0 and 50.0.0. `presidio-anonymizer` 2.2.364, the current release, pins
+`cryptography<49.0.0`, and presidio drives the PII redaction guardrail, so
+there is no version of the two that satisfies both. `pip-audit` ignores these
+three advisories **by id** rather than skipping the package, so a new
+`cryptography` advisory still fails the build. Revisit when presidio relaxes
+the pin; the alternative is replacing presidio, which is a larger change than
+the advisories currently justify.
+
 ## Reporting
 
 This is a portfolio project with no production users. If you find something,
