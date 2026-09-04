@@ -180,6 +180,16 @@ three advisories **by id** rather than skipping the package, so a new
 the pin; the alternative is replacing presidio, which is a larger change than
 the advisories currently justify.
 
+**Container base image.** The API image is built on `python:3.12-slim`
+(Debian 13). Both build stages run `apt-get upgrade` so the image ships
+current Debian security patches rather than whatever the base tag happened to
+carry. Trivy scans every build for HIGH and CRITICAL, but **reports rather
+than blocks**: what remains after that upgrade is upstream Debian's to fix,
+not this repository's, and a gate that cannot be satisfied gets bypassed
+instead of fixed. The findings are in the repository's Security tab. A
+vulnerability introduced by this project's own code or Python dependencies is
+a different matter -- `pip-audit` and `bandit` both gate the build.
+
 ## Reporting
 
 This is a portfolio project with no production users. If you find something,

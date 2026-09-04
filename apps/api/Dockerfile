@@ -6,7 +6,11 @@ FROM python:3.12-slim AS builder
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# upgrade before install: the base tag is rebuilt on its own cadence, so
+# without this the image ships whatever security patches were outstanding
+# when that tag was cut -- which is what the container scan flags.
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
       build-essential git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -27,7 +31,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 # tesseract → OCR fallback; poppler → PDF rasterisation for vision table extraction;
 # libgl/libglib → OpenCV deps pulled in by unstructured/Docling.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# upgrade before install: the base tag is rebuilt on its own cadence, so
+# without this the image ships whatever security patches were outstanding
+# when that tag was cut -- which is what the container scan flags.
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
       curl tesseract-ocr poppler-utils libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
