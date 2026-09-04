@@ -84,7 +84,7 @@ class HtmlParser(Parser):
             return None
 
         try:
-            return trafilatura.extract(
+            result: str | None = trafilatura.extract(
                 raw,
                 output_format="markdown",
                 include_tables=True,
@@ -95,6 +95,7 @@ class HtmlParser(Parser):
         except Exception as exc:  # noqa: BLE001 - extraction is best-effort
             log.warning("trafilatura failed; using the fallback extractor", reason=str(exc))
             return None
+        return result
 
 
 def _extract_title(raw: str) -> str | None:

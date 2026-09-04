@@ -43,7 +43,9 @@ from src.core.logging import get_logger
 
 log = get_logger(__name__)
 
-_ENVIRONMENT = Environment(  # noqa: S701 - autoescape is wrong for prompt text
+# autoescape is wrong for prompt templating: this renders plain text sent to
+# a model, not HTML served to a browser.
+_ENVIRONMENT = Environment(  # noqa: S701 # nosec B701
     undefined=StrictUndefined,
     trim_blocks=True,
     lstrip_blocks=True,

@@ -185,7 +185,7 @@ async def _load(services: AppServices, tenant_id: str, batch_id: str) -> dict[st
     raw = await services.redis.get(_key(tenant_id, batch_id))
     if raw is None:
         raise NotFoundError("Batch not found. Batches expire after seven days.")
-    return json.loads(raw)
+    return dict(json.loads(raw))
 
 
 def _key(tenant_id: str, batch_id: str) -> str:

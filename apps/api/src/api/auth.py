@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -306,7 +307,7 @@ async def get_principal(
     return principal
 
 
-def require_scope(scope: ApiKeyScope):  # noqa: ANN201 - returns a FastAPI dependency
+def require_scope(scope: ApiKeyScope) -> Callable[..., Awaitable[Principal]]:
     """Build a dependency that enforces a scope.
 
     Example:
@@ -323,7 +324,7 @@ def require_scope(scope: ApiKeyScope):  # noqa: ANN201 - returns a FastAPI depen
     return check
 
 
-def require_admin():  # noqa: ANN201 - returns a FastAPI dependency
+def require_admin() -> Callable[..., Awaitable[Principal]]:
     """Build a dependency that admits only workspace admins."""
 
     async def check(principal: Annotated[Principal, Depends(get_principal)]) -> Principal:

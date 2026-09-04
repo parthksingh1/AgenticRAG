@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.core.logging import get_logger
 
@@ -200,7 +200,7 @@ async def _erase_rows(tenant_id: str, *, dry_run: bool) -> dict[str, int]:
     million chunks into the identity map to delete them would exhaust memory,
     and a partial cascade would leave orphans that no later run can find.
     """
-    from sqlalchemy import text
+    from sqlalchemy import CursorResult, text
 
     from src.core.db import system_session
 
@@ -212,7 +212,13 @@ async def _erase_rows(tenant_id: str, *, dry_run: bool) -> dict[str, int]:
             # from a request; the tenant id is bound as a parameter.
             statement = text(f"{verb} {table} WHERE tenant_id = :tenant_id")
             result = await session.execute(statement, {"tenant_id": tenant_id})
-            counts[table] = int(result.scalar_one()) if dry_run else int(result.rowcount or 0)
+            if dry_run:
+                counts[table] = int(result.scalar_one())
+            else:
+                # A DELETE against a driver-level text() statement returns a
+                # CursorResult, which is where `.rowcount` actually lives; the
+                # base Result protocol in the async stubs does not declare it.
+                counts[table] = int(cast("CursorResult[Any]", result).rowcount or 0)
 
         if not dry_run:
             await session.execute(
@@ -237,22 +243,33 @@ async def _erase_objects(tenant_id: str, *, dry_run: bool) -> dict[str, int]:
 
 
 async def _erase_sparse(tenant_id: str, *, dry_run: bool) -> dict[str, int]:
-    """Delete the tenant's documents from the BM25 index."""
+    """Delete the tenant's BM25 index.
+
+    Indices are per tenant (``chunks-{tenant_id}``, see
+    :func:`src.retrieval.sparse.index_name_for`) rather than one shared index
+    filtered by tenant. Erasure is therefore dropping the tenant's index
+    outright, not a delete_by_query — which is also why there is no shared
+    index name in settings for this to reference.
+    """
     from opensearchpy import AsyncOpenSearch
 
     from src.core.config import get_settings
+    from src.retrieval.sparse import index_name_for
 
     settings = get_settings()
+    index = index_name_for(tenant_id)
     client = AsyncOpenSearch(hosts=[settings.opensearch_url], timeout=30)
-    query = {"query": {"term": {"tenant_id": tenant_id}}}
     try:
+        exists = await client.indices.exists(index=index)
+        if not exists:
+            return {"documents": 0}
         if dry_run:
-            result = await client.count(index=settings.opensearch_index, body=query)
+            result = await client.count(index=index)
             return {"documents": int(result.get("count", 0))}
-        result = await client.delete_by_query(
-            index=settings.opensearch_index, body=query, refresh=True
-        )
-        return {"documents": int(result.get("deleted", 0))}
+        count_result = await client.count(index=index)
+        count = int(count_result.get("count", 0))
+        await client.indices.delete(index=index)
+        return {"documents": count}
     finally:
         await client.close()
 
@@ -269,7 +286,7 @@ async def _erase_graph(tenant_id: str, *, dry_run: bool) -> dict[str, int]:
 
     settings = get_settings()
     driver = AsyncGraphDatabase.driver(
-        settings.neo4j_url, auth=(settings.neo4j_user, settings.neo4j_password)
+        settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value())
     )
     cypher = (
         "MATCH (n {tenant_id: $tenant_id}) RETURN count(n) AS n"
@@ -296,7 +313,9 @@ async def _erase_cache(tenant_id: str, *, dry_run: bool) -> dict[str, int]:
 
     from src.core.config import get_settings
 
-    client = redis_async.from_url(get_settings().redis_url)
+    # redis-py's from_url classmethod is unannotated in its shipped stubs;
+    # a documented upstream gap, not a local typing mistake.
+    client = redis_async.from_url(get_settings().redis_url)  # type: ignore[no-untyped-call]
     deleted = 0
     try:
         async for key in client.scan_iter(match=f"*:{tenant_id}:*", count=500):

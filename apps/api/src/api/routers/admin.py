@@ -678,7 +678,7 @@ async def list_prompts(principal: ADMIN) -> list[dict[str, Any]]:
                     "version": version,
                     "content_hash": prompt.content_hash,
                     "is_active": version == active,
-                    "variables": sorted(prompt.declared_variables),
+                    "variables": sorted(prompt.declared_variables()),
                     "changelog": prompt.changelog,
                     "author": prompt.author,
                 }
@@ -744,6 +744,16 @@ async def list_experiments(principal: ADMIN) -> list[ExperimentOut]:
             control=dict(row.control or {}),
             variant=dict(row.variant or {}),
             variant_traffic_pct=row.variant_traffic_pct,
+            is_shadow=row.is_shadow,
+            primary_metric=row.primary_metric,
+            control_stats=dict(row.control_stats or {}),
+            variant_stats=dict(row.variant_stats or {}),
+            p_value=row.p_value,
+            # Not stored: derived from p_value at read time using the
+            # conventional 0.05 threshold, so a p_value edited by hand can never
+            # disagree with the significance flag shown next to it.
+            is_significant=(row.p_value < 0.05) if row.p_value is not None else None,
+            decided_at=row.decided_at,
             created_at=row.created_at,
         )
         for row in rows

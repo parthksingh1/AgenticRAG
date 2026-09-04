@@ -318,7 +318,7 @@ class InjectionClassifier:
     def _load(self) -> Any:
         """Load the classification pipeline on first use."""
         if self._pipeline is None:
-            from transformers import pipeline  # type: ignore[import-not-found]
+            from transformers import pipeline
 
             log.info("loading injection classifier", model=self.model_name)
             self._pipeline = pipeline(

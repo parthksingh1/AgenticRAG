@@ -146,7 +146,9 @@ async def _complete(
 # ── Nodes ────────────────────────────────────────────────────────────────────
 
 
-def make_input_guardrails_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_input_guardrails_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Screen the user's message before anything else spends money."""
 
     async def input_guardrails(state: AgentState) -> dict[str, Any]:
@@ -176,7 +178,9 @@ def make_input_guardrails_node(deps: NodeDependencies) -> Callable[[AgentState],
     return input_guardrails
 
 
-def make_cache_lookup_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_cache_lookup_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Serve a semantically equivalent cached answer when one is safe to use."""
 
     async def cache_lookup(state: AgentState) -> dict[str, Any]:
@@ -206,7 +210,9 @@ def make_cache_lookup_node(deps: NodeDependencies) -> Callable[[AgentState], Awa
     return cache_lookup
 
 
-def make_intent_router_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_intent_router_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Classify the turn so the graph can route it."""
 
     async def intent_router(state: AgentState) -> dict[str, Any]:
@@ -240,7 +246,9 @@ def make_intent_router_node(deps: NodeDependencies) -> Callable[[AgentState], Aw
     return intent_router
 
 
-def make_query_rewriter_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_query_rewriter_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Expand the query with HyDE, paraphrases or sub-questions.
 
     Rewriting is delegated to the retriever's own rewriter so there is one
@@ -280,7 +288,9 @@ def make_query_rewriter_node(deps: NodeDependencies) -> Callable[[AgentState], A
     return query_rewriter
 
 
-def make_retriever_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_retriever_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Run hybrid retrieval and scan the result for indirect injection."""
 
     async def retriever(state: AgentState) -> dict[str, Any]:
@@ -338,7 +348,7 @@ def make_retriever_node(deps: NodeDependencies) -> Callable[[AgentState], Awaita
     return retriever
 
 
-def make_reranker_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_reranker_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Record the retriever's reranked output in the state.
 
     The hybrid retriever already reranks internally; this node makes the result
@@ -358,7 +368,7 @@ def make_reranker_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitab
     return reranker
 
 
-def make_planner_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_planner_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Plan the tool sequence for a tool-using turn."""
 
     async def planner(state: AgentState) -> dict[str, Any]:
@@ -394,7 +404,9 @@ def make_planner_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitabl
     return planner
 
 
-def make_tool_executor_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_tool_executor_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Run the model's requested tools until it stops asking or the budget ends."""
 
     async def tool_executor(state: AgentState) -> dict[str, Any]:
@@ -482,12 +494,17 @@ async def _run_tools(
     """
     import asyncio
 
-    if deps.tools is None:
+    tools = deps.tools
+    if tools is None:
         return []
 
     async def run_one(call: ToolCall) -> dict[str, Any]:
+        # `tools` is captured as a local rather than read off `deps` inside the
+        # closure: mypy cannot narrow an attribute access across a closure
+        # boundary, since deps could in principle be reassigned between the
+        # None check above and this call.
         try:
-            output = await deps.tools.call(call.name, call.arguments, tenant_id=tenant_id)
+            output = await tools.call(call.name, call.arguments, tenant_id=tenant_id)
         except Exception as exc:  # noqa: BLE001 - a tool failure is data, not a crash
             log.warning("tool call failed", tool=call.name, reason=str(exc))
             return {"tool": call.name, "call_id": call.id, "error": str(exc)}
@@ -496,7 +513,9 @@ async def _run_tools(
     return list(await asyncio.gather(*(run_one(call) for call in calls)))
 
 
-def make_generator_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_generator_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Generate the cited answer from the retrieved context."""
 
     async def generator(state: AgentState) -> dict[str, Any]:
@@ -535,7 +554,7 @@ def make_generator_node(deps: NodeDependencies) -> Callable[[AgentState], Awaita
         try:
             text, budget = await _complete(
                 deps,
-                {**state, "budget": budget},  # type: ignore[arg-type]
+                {**state, "budget": budget},
                 messages=messages,
                 node="generator",
                 max_tokens=1500,
@@ -563,7 +582,9 @@ def make_generator_node(deps: NodeDependencies) -> Callable[[AgentState], Awaita
     return generator
 
 
-def make_citation_binder_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_citation_binder_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Verify each citation and drop the ones the cited passage does not support."""
 
     async def citation_binder(state: AgentState) -> dict[str, Any]:
@@ -604,7 +625,9 @@ def make_citation_binder_node(deps: NodeDependencies) -> Callable[[AgentState], 
     return citation_binder
 
 
-def make_self_critic_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_self_critic_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Review the draft and decide whether it needs one more pass."""
 
     async def self_critic(state: AgentState) -> dict[str, Any]:
@@ -646,7 +669,9 @@ def make_self_critic_node(deps: NodeDependencies) -> Callable[[AgentState], Awai
     return self_critic
 
 
-def make_output_guardrails_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_output_guardrails_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Screen the finished answer before it reaches the user."""
 
     async def output_guardrails(state: AgentState) -> dict[str, Any]:
@@ -680,7 +705,9 @@ def make_output_guardrails_node(deps: NodeDependencies) -> Callable[[AgentState]
     return output_guardrails
 
 
-def make_formatter_node(deps: NodeDependencies) -> Callable[[AgentState], Awaitable[dict]]:
+def make_formatter_node(
+    deps: NodeDependencies,
+) -> Callable[[AgentState], Awaitable[dict[str, Any]]]:
     """Apply the tenant's response template and settle the stop reason."""
 
     async def formatter(state: AgentState) -> dict[str, Any]:
@@ -693,7 +720,13 @@ def make_formatter_node(deps: NodeDependencies) -> Callable[[AgentState], Awaita
 
             try:
                 answer = (
-                    Environment(undefined=StrictUndefined, autoescape=False)  # noqa: S701
+                    # autoescape is wrong here: this renders plain prompt text, not
+                    # HTML, and escaping would corrupt legitimate characters in the
+                    # source document being summarised.
+                    Environment(  # nosec B701
+                        undefined=StrictUndefined,
+                        autoescape=False,  # noqa: S701
+                    )
                     .from_string(template)
                     .render(answer=answer, citations=state.get("citations") or [])
                 )

@@ -196,7 +196,7 @@ class MCPClient:
             response = await client.get(f"{self._base_url}/healthz", timeout=DISCOVERY_TIMEOUT)
         except Exception:  # noqa: BLE001 - unreachable means unhealthy
             return False
-        return response.status_code == 200
+        return bool(response.status_code == 200)
 
     async def aclose(self) -> None:
         """Close the HTTP client."""

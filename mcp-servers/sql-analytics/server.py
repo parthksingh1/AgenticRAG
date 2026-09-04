@@ -193,7 +193,7 @@ def apply_row_limit(query: str, limit: int = MAX_ROWS) -> str:
     inner = query.strip().rstrip(";").strip()
     # The query reaching here has already passed `validate`, which proves it is a
     # single read-only SELECT over allowlisted views; `limit` is an int constant.
-    return f"SELECT * FROM ({inner}) AS agent_query LIMIT {limit}"  # noqa: S608
+    return f"SELECT * FROM ({inner}) AS agent_query LIMIT {limit}"  # noqa: S608 # nosec B608
 
 
 class QueryExecutor:

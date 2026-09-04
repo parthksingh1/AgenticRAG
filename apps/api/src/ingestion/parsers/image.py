@@ -140,8 +140,8 @@ class ImageParser(Parser):
 
         try:
             with Image.open(io.BytesIO(data)) as image:
-                return pytesseract.image_to_string(
-                    image.convert("RGB"), lang=self._language
+                return str(
+                    pytesseract.image_to_string(image.convert("RGB"), lang=self._language)
                 ).strip()
         except Exception as exc:  # noqa: BLE001 - a bad image must not fail ingestion
             log.warning("OCR failed", reason=str(exc))

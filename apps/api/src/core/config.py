@@ -47,7 +47,8 @@ class Settings(BaseSettings):
     # ── Core ─────────────────────────────────────────────────────────────────
     app_env: AppEnv = AppEnv.LOCAL
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    api_host: str = "0.0.0.0"  # noqa: S104 — bound inside a container network
+    # Bound inside a container network, not exposed to the host directly.
+    api_host: str = "0.0.0.0"  # noqa: S104 # nosec B104
     api_port: int = 8000
     secret_key: SecretStr = SecretStr("insecure-local-development-key-change-me")
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])

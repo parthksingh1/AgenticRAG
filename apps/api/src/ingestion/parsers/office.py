@@ -54,7 +54,10 @@ class DocxParser(Parser):
             text = paragraph.text.strip()
             if not text:
                 continue
-            style = (paragraph.style.name or "").lower()
+            # A paragraph can carry no style at all (a stripped or
+            # hand-edited document); treated as body text rather than raised on,
+            # since one missing style must not fail the whole document.
+            style = ((paragraph.style.name if paragraph.style else None) or "").lower()
 
             if style.startswith("heading"):
                 level = _heading_level_from_style(style)
@@ -291,7 +294,7 @@ def _slide_notes(slide: Any) -> str:
     try:
         if not slide.has_notes_slide:
             return ""
-        return slide.notes_slide.notes_text_frame.text.strip()
+        return str(slide.notes_slide.notes_text_frame.text).strip()
     except (AttributeError, ValueError):
         return ""
 

@@ -395,7 +395,9 @@ async def _worker_redis() -> Any:
     try:
         import redis.asyncio as redis_async
 
-        client = redis_async.from_url(settings.redis_url)
+        # redis-py's from_url classmethod is unannotated in its shipped
+        # stubs; a documented upstream gap, not a local typing mistake.
+        client = redis_async.from_url(settings.redis_url)  # type: ignore[no-untyped-call]
         await client.ping()
     except Exception as exc:  # noqa: BLE001 - progress is cosmetic
         log.debug("redis unavailable in the worker", reason=str(exc))

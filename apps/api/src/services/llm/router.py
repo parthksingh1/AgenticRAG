@@ -309,7 +309,11 @@ class LLMRouter:
                 if attempt == self._retry.max_attempts or not _is_retryable(exc):
                     break
                 self.stats.retries += 1
-                delay = self._retry.delay_for(attempt, jitter=random.random())  # noqa: S311
+                # random.random() here is retry jitter, not a cryptographic value.
+                delay = self._retry.delay_for(
+                    attempt,
+                    jitter=random.random(),  # noqa: S311 # nosec B311
+                )
                 log.info(
                     "retrying provider call",
                     provider=provider.name,

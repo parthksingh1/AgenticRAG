@@ -261,7 +261,7 @@ class DebertaNliModel(NliModel):
     def _load(self) -> Any:
         """Load the NLI pipeline on first use."""
         if self._pipeline is None:
-            from transformers import pipeline  # type: ignore[import-not-found]
+            from transformers import pipeline
 
             log.info("loading NLI model", model=self.model_name)
             self._pipeline = pipeline(

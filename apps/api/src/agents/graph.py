@@ -52,7 +52,7 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from langgraph.graph import END, StateGraph
@@ -159,26 +159,46 @@ def route_after_critique(state: AgentState) -> str:
 # ── Graph construction ───────────────────────────────────────────────────────
 
 
+def _add_node(graph: Any, name: str, fn: Callable[[AgentState], Awaitable[dict[str, Any]]]) -> None:
+    """Register one node, in one place, with the one ignore this needs.
+
+    LangGraph 1.x types ``add_node``'s overloads against a ``Protocol`` with a
+    contravariant type parameter, keyed to the graph's own state type. A plain
+    ``Callable[[AgentState], Awaitable[dict[str, Any]]]`` — which is what every
+    node factory in this module returns, and what runs correctly — does not
+    unify with that overload set under strict mypy. This is a reported
+    upstream stub friction, not a mismatch in our code: centralising the call
+    here means the workaround is explained once, in one place, rather than
+    repeated at every call site.
+    """
+    graph.add_node(name, fn)
+
+
 def build_graph(deps: NodeDependencies) -> Any:
     """Compile the agent graph for a set of dependencies.
 
     Returns a compiled LangGraph app exposing ``ainvoke`` and ``astream_events``.
     """
-    graph: StateGraph = StateGraph(AgentState)
+    # Deliberately uninferred/unannotated: StateGraph's own __init__
+    # overloads infer the correct StateGraph[AgentState, ...] parameterisation
+    # from the AgentState argument. A bare `StateGraph` annotation here would
+    # widen every type parameter to Any and break add_node's overload
+    # resolution for every node below.
+    graph = StateGraph(AgentState)
 
-    graph.add_node("input_guardrails", make_input_guardrails_node(deps))
-    graph.add_node("cache_lookup", make_cache_lookup_node(deps))
-    graph.add_node("intent_router", make_intent_router_node(deps))
-    graph.add_node("query_rewriter", make_query_rewriter_node(deps))
-    graph.add_node("retriever", make_retriever_node(deps))
-    graph.add_node("reranker", make_reranker_node(deps))
-    graph.add_node("planner", make_planner_node(deps))
-    graph.add_node("tool_executor", make_tool_executor_node(deps))
-    graph.add_node("generator", make_generator_node(deps))
-    graph.add_node("citation_binder", make_citation_binder_node(deps))
-    graph.add_node("self_critic", make_self_critic_node(deps))
-    graph.add_node("output_guardrails", make_output_guardrails_node(deps))
-    graph.add_node("formatter", make_formatter_node(deps))
+    _add_node(graph, "input_guardrails", make_input_guardrails_node(deps))
+    _add_node(graph, "cache_lookup", make_cache_lookup_node(deps))
+    _add_node(graph, "intent_router", make_intent_router_node(deps))
+    _add_node(graph, "query_rewriter", make_query_rewriter_node(deps))
+    _add_node(graph, "retriever", make_retriever_node(deps))
+    _add_node(graph, "reranker", make_reranker_node(deps))
+    _add_node(graph, "planner", make_planner_node(deps))
+    _add_node(graph, "tool_executor", make_tool_executor_node(deps))
+    _add_node(graph, "generator", make_generator_node(deps))
+    _add_node(graph, "citation_binder", make_citation_binder_node(deps))
+    _add_node(graph, "self_critic", make_self_critic_node(deps))
+    _add_node(graph, "output_guardrails", make_output_guardrails_node(deps))
+    _add_node(graph, "formatter", make_formatter_node(deps))
 
     graph.set_entry_point("input_guardrails")
 

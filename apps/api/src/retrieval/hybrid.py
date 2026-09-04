@@ -38,7 +38,6 @@ from src.core.logging import get_logger
 from src.retrieval.base import Retriever
 from src.retrieval.corrective import CragAssessment, RetrievalEvaluator, WebSearchClient
 from src.retrieval.fusion import (
-    FusionConfig,
     deduplicate_by_document,
     reciprocal_rank_fusion,
     weighted_score_fusion,
@@ -51,6 +50,7 @@ from src.retrieval.rewrite import (
     looks_time_sensitive,
 )
 from src.retrieval.types import (
+    FusionConfig,
     RetrievalRequest,
     RetrievalResult,
     RetrievalSource,

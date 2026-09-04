@@ -179,8 +179,23 @@ module = [
   "datasketch.*", "trafilatura.*", "pytesseract.*", "fitz.*", "pptx.*",
   "docx.*", "opensearchpy.*", "minio.*", "langfuse.*", "ragas.*",
   "langgraph.*", "pgvector.*", "RestrictedPython.*", "sqlparse.*", "pint.*",
+  "neo4j.*", "openpyxl.*", "cohere.*", "PIL.*", "opentelemetry.exporter.*",
+  "opentelemetry.instrumentation.*", "opentelemetry.sdk.*",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# celery ships no py.typed marker and no third-party stub package exists.
+# ignore_missing_imports silences the import error; the decorator check below
+# is silenced separately, because celery's task decorator returning Any is the
+# root cause of every "makes X untyped" warning in this module and there is no
+# fix available on our side of that boundary.
+module = ["celery.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["src.workers.celery_app"]
+disallow_untyped_decorators = false
 
 # ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

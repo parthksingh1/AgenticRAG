@@ -155,15 +155,25 @@ class IngestionPipeline:
         storage: Any,
         sparse: Any = None,
         graph: Any = None,
+        graph_router: Any = None,
+        graph_model: str = "",
         enricher: Any = None,
         progress: ProgressReporter | None = None,
         max_bytes: int = 200 * 1024 * 1024,
     ) -> None:
-        """Wire the pipeline to its collaborators."""
+        """Wire the pipeline to its collaborators.
+
+        Graph extraction needs both a Neo4j driver (``graph``) and an LLM
+        router (``graph_router``): extraction is a model call, not a database
+        write. Passing one without the other leaves the feature gated off
+        rather than half-configured — see ``_extract_graph``.
+        """
         self._embedder = embedder
         self._storage = storage
         self._sparse = sparse
         self._graph = graph
+        self._graph_router = graph_router
+        self._graph_model = graph_model
         self._enricher = enricher
         self._progress = progress or ProgressReporter()
         self._max_bytes = max_bytes
@@ -228,7 +238,12 @@ class IngestionPipeline:
 
         await self._index_sparse(document=document, chunks=chunks)
 
-        if self._graph is not None and document.tenant_id and _graph_enabled(document):
+        if (
+            self._graph is not None
+            and self._graph_router is not None
+            and document.tenant_id
+            and _graph_enabled(document)
+        ):
             await self._report(tenant_id, document_id, Stage.GRAPH)
             result.entities_extracted = await self._extract_graph(document=document, chunks=chunks)
 
@@ -412,9 +427,17 @@ class IngestionPipeline:
         enhancement, and losing it must not cost the document.
         """
         try:
-            from src.services.graph_extraction import extract_and_store
+            from src.services.graph_extraction import extract_document
 
-            return await extract_and_store(graph=self._graph, document=document, chunks=chunks)
+            totals = await extract_document(
+                chunks,
+                driver=self._graph,
+                router=self._graph_router,
+                model=self._graph_model,
+                tenant_id=document.tenant_id,
+                document_id=document.id,
+            )
+            return totals["entities"]
         except Exception as exc:  # noqa: BLE001 - graph is an enhancement
             log.warning("graph extraction failed", document_id=document.id, reason=str(exc))
             return 0

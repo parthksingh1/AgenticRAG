@@ -183,7 +183,7 @@ class CsvParser(Parser):
         try:
             dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
         except csv.Error:
-            dialect = csv.excel  # type: ignore[assignment]
+            dialect = csv.excel
 
         reader = csv.reader(io.StringIO(text), dialect)
         try:

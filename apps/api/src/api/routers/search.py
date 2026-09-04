@@ -20,7 +20,7 @@ Example:
 from __future__ import annotations
 
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Request
 
@@ -49,7 +49,7 @@ async def search(
 @router.post("/internal/search", response_model=SearchResponse, include_in_schema=False)
 async def internal_search(
     request: Request,
-    payload: dict,
+    payload: dict[str, Any],
     x_tenant_id: Annotated[str | None, Header()] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> SearchResponse:

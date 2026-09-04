@@ -89,24 +89,44 @@ class AnthropicProvider(Provider):
         :mod:`src.services.llm.router`, which also handles cross-provider
         fallback. Letting the SDK retry as well would multiply the two.
         """
-        from anthropic import AsyncAnthropic
+        from anthropic import NOT_GIVEN, AsyncAnthropic
 
+        self._not_given = NOT_GIVEN
         self._client = AsyncAnthropic(api_key=api_key, timeout=timeout, max_retries=max_retries)
+
+    def _build_kwargs(self, request: CompletionRequest) -> dict[str, Any]:
+        """Build the keyword arguments shared by ``complete`` and ``stream``.
+
+        A plain ``dict[str, Any]``, unpacked with ``**kwargs`` at the call
+        site, for the same reason as the OpenAI provider: the SDK's ``create``
+        and ``stream`` overloads are typed against a precise per-field
+        ``TypedDict``/``NotGiven`` union that a loosely-typed message dict
+        cannot satisfy statically, even though :meth:`_to_anthropic` builds
+        exactly the shape the API expects at runtime.
+
+        Centralising this also fixed a real gap: ``stream`` previously built
+        its call by hand and never passed ``tools`` or ``stop_sequences``, so
+        a streamed turn could never actually invoke a tool.
+        """
+        system, messages = self._split_system(request.messages)
+        kwargs: dict[str, Any] = {
+            "model": request.model,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "system": system or self._not_given,
+            "messages": [self._to_anthropic(m) for m in messages],
+        }
+        if request.tools:
+            kwargs["tools"] = [self._tool_to_anthropic(t) for t in request.tools]
+        if request.stop:
+            kwargs["stop_sequences"] = list(request.stop)
+        return kwargs
 
     async def complete(self, request: CompletionRequest) -> Completion:
         """Call the Messages API and adapt the response."""
-        system, messages = self._split_system(request.messages)
         started = time.perf_counter()
         try:
-            response = await self._client.messages.create(
-                model=request.model,
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                system=system or NOT_GIVEN_SENTINEL,
-                messages=[self._to_anthropic(m) for m in messages],
-                tools=[self._tool_to_anthropic(t) for t in request.tools] or NOT_GIVEN_SENTINEL,
-                stop_sequences=list(request.stop) or NOT_GIVEN_SENTINEL,
-            )
+            response = await self._client.messages.create(**self._build_kwargs(request))
         except Exception as exc:
             raise ProviderError(provider=self.name, reason=str(exc)) from exc
 
@@ -134,15 +154,8 @@ class AnthropicProvider(Provider):
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamEvent]:
         """Stream text deltas, then a final usage event."""
-        system, messages = self._split_system(request.messages)
         try:
-            async with self._client.messages.stream(
-                model=request.model,
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                system=system or NOT_GIVEN_SENTINEL,
-                messages=[self._to_anthropic(m) for m in messages],
-            ) as stream:
+            async with self._client.messages.stream(**self._build_kwargs(request)) as stream:
                 async for text in stream.text_stream:
                     yield StreamEvent(type=StreamEventType.TEXT, text=text)
                 final = await stream.get_final_message()
@@ -221,33 +234,7 @@ class OpenAICompatibleProvider(Provider):
     async def complete(self, request: CompletionRequest) -> Completion:
         """Call chat.completions and adapt the response."""
         started = time.perf_counter()
-        kwargs: dict[str, Any] = {
-            "model": request.model,
-            "messages": [self._to_openai(m) for m in request.messages],
-            "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
-        }
-        if request.top_p is not None:
-            kwargs["top_p"] = request.top_p
-        if request.stop:
-            kwargs["stop"] = list(request.stop)
-        if request.tools:
-            kwargs["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters or {"type": "object", "properties": {}},
-                    },
-                }
-                for t in request.tools
-            ]
-        if request.response_schema is not None:
-            kwargs["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "response", "schema": request.response_schema},
-            }
+        kwargs = self._build_kwargs(request)
 
         try:
             response = await self._client.chat.completions.create(**kwargs)
@@ -280,16 +267,20 @@ class OpenAICompatibleProvider(Provider):
         )
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamEvent]:
-        """Stream token deltas, then usage."""
+        """Stream token deltas, then usage.
+
+        Built from the same kwargs as :meth:`complete`, plus the two
+        stream-specific flags. Previously this rebuilt the call by hand with
+        only ``max_tokens`` and ``temperature`` — a streaming turn silently
+        never told the API about ``tools``, ``stop`` or ``response_schema``,
+        so a streamed tool-calling turn could never actually call a tool.
+        """
+        kwargs = self._build_kwargs(request)
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
+
         try:
-            stream = await self._client.chat.completions.create(
-                model=request.model,
-                messages=[self._to_openai(m) for m in request.messages],
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-                stream=True,
-                stream_options={"include_usage": True},
-            )
+            stream = await self._client.chat.completions.create(**kwargs)
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield StreamEvent(
@@ -310,6 +301,47 @@ class OpenAICompatibleProvider(Provider):
     async def aclose(self) -> None:
         """Close the underlying HTTP client."""
         await self._client.close()
+
+    def _build_kwargs(self, request: CompletionRequest) -> dict[str, Any]:
+        """Build the keyword arguments shared by ``complete`` and ``stream``.
+
+        Returned as a plain ``dict[str, Any]`` and unpacked with ``**kwargs``
+        at the call site, rather than passed as explicit keyword arguments:
+        the OpenAI SDK's ``create`` overloads are typed against precise
+        per-field ``TypedDict``/``NotGiven`` unions that a loosely-typed
+        message dict cannot satisfy statically, even though the dicts built
+        by :meth:`_to_openai` are shaped exactly as the API expects at
+        runtime. Unpacking a dict is what the SDK's own examples do for
+        exactly this reason.
+        """
+        kwargs: dict[str, Any] = {
+            "model": request.model,
+            "messages": [self._to_openai(m) for m in request.messages],
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+        }
+        if request.top_p is not None:
+            kwargs["top_p"] = request.top_p
+        if request.stop:
+            kwargs["stop"] = list(request.stop)
+        if request.tools:
+            kwargs["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters or {"type": "object", "properties": {}},
+                    },
+                }
+                for t in request.tools
+            ]
+        if request.response_schema is not None:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "response", "schema": request.response_schema},
+            }
+        return kwargs
 
     @staticmethod
     def _to_openai(message: Message) -> dict[str, Any]:
@@ -353,15 +385,22 @@ class GoogleProvider(Provider):
         system, messages = self._split_system(request.messages)
         started = time.perf_counter()
         try:
+            # Typed as list[Any] rather than left to inference: google-genai
+            # accepts plain dicts shaped like this at runtime (it is their
+            # documented alternative to building Content objects), but the
+            # SDK's overloads are keyed to a large Content/ContentDict/Part
+            # union that a literal dict comprehension's inferred type does
+            # not structurally match under strict mypy.
+            contents: list[Any] = [
+                {
+                    "role": "model" if m.role is Role.ASSISTANT else "user",
+                    "parts": [{"text": m.content}],
+                }
+                for m in messages
+            ]
             response = await self._client.aio.models.generate_content(
                 model=request.model,
-                contents=[
-                    {
-                        "role": "model" if m.role is Role.ASSISTANT else "user",
-                        "parts": [{"text": m.content}],
-                    }
-                    for m in messages
-                ],
+                contents=contents,
                 config={
                     "system_instruction": system,
                     "max_output_tokens": request.max_tokens,
@@ -389,9 +428,21 @@ class GoogleProvider(Provider):
         """Stream text chunks from Gemini."""
         system, messages = self._split_system(request.messages)
         try:
+            # Role mapped the same way as complete(): a multi-turn
+            # conversation streamed through this path previously labelled
+            # every message "user", including the model's own prior turns,
+            # which corrupts the history sent back to Gemini on every
+            # streamed follow-up question.
+            contents: list[Any] = [
+                {
+                    "role": "model" if m.role is Role.ASSISTANT else "user",
+                    "parts": [{"text": m.content}],
+                }
+                for m in messages
+            ]
             stream = await self._client.aio.models.generate_content_stream(
                 model=request.model,
-                contents=[{"role": "user", "parts": [{"text": m.content}]} for m in messages],
+                contents=contents,
                 config={"system_instruction": system, "max_output_tokens": request.max_tokens},
             )
             async for chunk in stream:
@@ -481,21 +532,6 @@ class FakeProvider(Provider):
     async def aclose(self) -> None:
         """Nothing to release."""
         return
-
-
-class _NotGiven:
-    """Sentinel that vendor SDKs interpret as "parameter omitted"."""
-
-    def __bool__(self) -> bool:
-        """Always falsy, so ``value or NOT_GIVEN_SENTINEL`` reads naturally."""
-        return False
-
-    def __repr__(self) -> str:
-        """Readable in tracebacks."""
-        return "NOT_GIVEN"
-
-
-NOT_GIVEN_SENTINEL = _NotGiven()
 
 
 def _safe_json(raw: str) -> dict[str, Any]:

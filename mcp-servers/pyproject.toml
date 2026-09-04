@@ -1,3 +1,18 @@
+# Without a build-system table, `pip install -e "mcp-servers[dev]"` has no
+# backend to build against and fails before pytest is ever reached -- which is
+# exactly how the CI job was failing, in eight seconds, with no test output.
+#
+# py-modules = [] disables setuptools' package auto-discovery. The six server
+# directories are not an installable package tree (they are deployed as
+# separate images from their own requirements.txt); without this, autodiscovery
+# finds multiple top-level directories and refuses to guess between them.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = []
+
 [project]
 name = "agrag-mcp-servers"
 version = "1.0.0"

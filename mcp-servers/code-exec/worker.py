@@ -167,7 +167,7 @@ def run(code: str, data: Any) -> dict[str, Any]:
     }
 
     try:
-        exec(bytecode, namespace)  # noqa: S102 - the whole point, inside the sandbox
+        exec(bytecode, namespace)  # noqa: S102 # nosec B102
     except BaseException as exc:  # noqa: BLE001 - including MemoryError and SystemExit
         return {"error": f"{type(exc).__name__}: {exc}", "stdout": printer.value()}
 

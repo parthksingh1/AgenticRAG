@@ -17,6 +17,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Annotated, Any
@@ -119,7 +120,7 @@ def get_services(request: Request) -> AppServices:
         RuntimeError: when startup has not completed, which would otherwise
             surface as a confusing AttributeError deep in a route.
     """
-    services = getattr(request.app.state, "services", None)
+    services: AppServices | None = getattr(request.app.state, "services", None)
     if services is None:  # pragma: no cover - only reachable mid-startup
         msg = "application services are not initialised"
         raise RuntimeError(msg)
@@ -282,7 +283,7 @@ async def _build_retriever(
     )
 
 
-def _usage_sink(tenant_id: str):  # noqa: ANN202 - returns an async callable
+def _usage_sink(tenant_id: str) -> Callable[[Any, Any], Awaitable[None]]:
     """Build the callback that persists usage and updates metrics.
 
     Failures here are swallowed: losing an accounting row is bad, and failing a

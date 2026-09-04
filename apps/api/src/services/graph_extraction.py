@@ -465,7 +465,7 @@ def _confidence(raw: Any) -> float:
         1.0
     """
     try:
-        return min(1.0, max(0.0, float(raw)))  # type: ignore[arg-type]
+        return min(1.0, max(0.0, float(raw)))
     except (TypeError, ValueError):
         return 0.0
 

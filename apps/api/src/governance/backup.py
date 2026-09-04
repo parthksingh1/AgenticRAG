@@ -21,7 +21,9 @@ from __future__ import annotations
 import gzip
 import os
 import shutil
-import subprocess  # pg_dump: fixed argument vector, shell=False
+
+# pg_dump is invoked below with a fixed argument vector and shell=False.
+import subprocess  # nosec B404
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -120,7 +122,8 @@ def _dump_postgres(database_url: str, *, when: datetime) -> Path:
     # from user input, and there is no shell to inject into.
     argv = [executable, "--no-owner", "--no-privileges", "--format=plain", database_url]
     with gzip.open(target, "wb") as sink:
-        process = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+        # Fixed argv, shell=False: nothing here is interpolated from user input.
+        process = subprocess.run(  # noqa: S603 # nosec B603
             argv,
             capture_output=True,
             env=environment,

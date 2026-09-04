@@ -22,7 +22,9 @@ Example:
 from __future__ import annotations
 
 import json
-import subprocess
+
+# Every subprocess call below uses a fixed argument vector and shell=False.
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 from typing import Any
@@ -47,7 +49,7 @@ def run_sandboxed(code: str, data: Any, *, timeout_seconds: float) -> dict[str, 
     job = json.dumps({"code": code, "data": data}, default=str)
 
     try:
-        process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        process = subprocess.Popen(  # noqa: S603 # nosec B603
             # -I isolates the worker: PYTHONPATH and the user site directory are
             # ignored, so nothing can inject a module into the process that is
             # about to run untrusted code. -S is deliberately *not* used, since

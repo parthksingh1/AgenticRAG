@@ -227,7 +227,11 @@ async def _build_redis(settings: Settings) -> Any:
     """Connect to Redis, verifying the connection before returning it."""
     import redis.asyncio as redis_async
 
-    client = redis_async.from_url(settings.redis_url, decode_responses=False)
+    # redis-py's from_url classmethod is unannotated in its shipped stubs;
+    # this is a documented upstream gap, not a local typing mistake.
+    client = redis_async.from_url(  # type: ignore[no-untyped-call]
+        settings.redis_url, decode_responses=False
+    )
     await client.ping()
     return client
 

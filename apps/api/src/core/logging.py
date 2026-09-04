@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import types
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -58,6 +59,10 @@ class _InterceptHandler(logging.Handler):
             level = record.levelno
 
         # Walk out of the logging machinery so the reported source is the caller.
+        # Annotated Optional up front: currentframe() is typed to return
+        # FrameType, but f_back is FrameType | None, and the loop below can
+        # walk off the top of the stack.
+        frame: types.FrameType | None
         frame, depth = logging.currentframe(), 2
         while frame and frame.f_code.co_filename == logging.__file__:
             frame = frame.f_back

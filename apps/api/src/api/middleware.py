@@ -235,7 +235,13 @@ def install_middleware(app: FastAPI, *, settings: Settings) -> None:
 
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(MetricsMiddleware)
-    app.add_middleware(TenantMiddleware, settings=settings)
+    # Starlette's add_middleware() stub types the factory as taking only
+    # `app`; it does not model a subclass constructor with extra keyword
+    # arguments, which is the documented way to configure a
+    # BaseHTTPMiddleware subclass. Runtime behaviour is correct — Starlette
+    # partially applies the extra kwargs before calling the class — so this
+    # is a stub gap, not a real type error.
+    app.add_middleware(TenantMiddleware, settings=settings)  # type: ignore[arg-type]
     app.add_middleware(ContextMiddleware)
     app.add_middleware(ErrorMiddleware)
     app.add_middleware(

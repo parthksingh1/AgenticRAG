@@ -30,20 +30,33 @@ def test_generated_requests_never_return_a_500() -> None:
     """
     schemathesis = pytest.importorskip("schemathesis")
     from fastapi.testclient import TestClient
+    from schemathesis.core import NotSet
+    from schemathesis.core.result import Err
 
     schema = schemathesis.openapi.from_dict(app.openapi())
     client = TestClient(app)
     failures: list[str] = []
 
-    for operation in schema.get_all_operations():
-        if operation.err():
+    for result in schema.get_all_operations():
+        # get_all_operations() yields a Result per operation rather than
+        # raising on the first one it cannot build (an unresolvable $ref, an
+        # unsupported schema construct); skip those, they are not what this
+        # test is checking.
+        if isinstance(result, Err):
             continue
-        case = operation.ok().Case()
+        operation = result.ok()
+        # Path parameters have no default and Case() leaves them unset, which
+        # raises InvalidSchema before a request is even made — that failure
+        # would test this harness, not the endpoint. A fixed dummy value
+        # exercises the handler's own validation of a syntactically present
+        # but semantically wrong id instead.
+        path_parameters = {p.name: "test-fuzz-id" for p in operation.path_parameters.items}
+        case = operation.Case(path_parameters=path_parameters)
         try:
             response = client.request(
                 case.method,
                 case.formatted_path,
-                json=case.body if case.body is not schemathesis.NOT_SET else None,
+                json=None if isinstance(case.body, NotSet) else case.body,
             )
         except Exception as exc:  # noqa: BLE001 - an unhandled exception is the finding
             failures.append(f"{case.method} {case.path}: raised {exc!r}")

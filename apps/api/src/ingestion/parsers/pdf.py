@@ -283,7 +283,11 @@ def _normalise_bbox(bbox: Any, width: float, height: float) -> BoundingBox | Non
     if not bbox or len(bbox) != 4:
         return None
     x0, y0, x1, y1 = (float(v) for v in bbox)
-    clamp = lambda v: min(max(v, 0.0), 1.0)  # noqa: E731 - local, single-use
+
+    def clamp(v: float) -> float:
+        """Clamp a normalised coordinate into [0, 1]."""
+        return min(max(v, 0.0), 1.0)
+
     try:
         return BoundingBox(
             x0=clamp(x0 / width),

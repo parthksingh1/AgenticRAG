@@ -33,7 +33,7 @@ import json
 import time
 import uuid
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
@@ -121,7 +121,7 @@ async def _stream_chunks(
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
 
-    def chunk(delta: dict, finish: str | None = None) -> str:
+    def chunk(delta: dict[str, Any], finish: str | None = None) -> str:
         payload = {
             "id": completion_id,
             "object": "chat.completion.chunk",
@@ -133,7 +133,7 @@ async def _stream_chunks(
 
     yield chunk({"role": "assistant", "content": ""})
 
-    citations: tuple = ()
+    citations: tuple[Any, ...] = ()
     try:
         async for event in service.stream(request):
             if event.type == "token" and event.text:
@@ -176,7 +176,7 @@ async def _stream_chunks(
 async def list_models(
     principal: Annotated[Principal, Depends(get_principal)],
     runtime: Annotated[TenantRuntime, Depends(get_tenant_runtime)],
-) -> dict:
+) -> dict[str, Any]:
     """List the models this workspace may use, in the OpenAI shape.
 
     SDK clients call this to populate a model picker, and returning the
