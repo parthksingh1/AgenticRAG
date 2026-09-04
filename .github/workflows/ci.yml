@@ -37,7 +37,11 @@ jobs:
       - name: ruff (evals, scripts, cli)
         run: ruff check . && ruff format --check .
       - name: mypy
-        run: mypy apps/api/src
+        # --config-file is required: run from the repo root, mypy does not
+        # find apps/api/pyproject.toml, so it silently drops both the strict
+        # settings and the ignore_missing_imports overrides for stub-less
+        # third-party packages, and then fails on those imports.
+        run: mypy --config-file apps/api/pyproject.toml apps/api/src
         working-directory: .
       - name: bandit
         run: bandit -c apps/api/pyproject.toml -r apps/api/src mcp-servers -q
