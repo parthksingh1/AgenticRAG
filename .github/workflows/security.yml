@@ -60,18 +60,31 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install bandit semgrep
+      # bandit[sarif] rather than bare bandit: the SARIF formatter lives in an
+      # extra, and without it `-f sarif` errors out, leaving no file for the
+      # upload step to find.
+      - run: pip install "bandit[sarif]" semgrep
+
+      # This job produces the Security tab entries. It does not gate the build
+      # -- the lint job runs bandit with its real config and fails on findings,
+      # which is what actually blocks a merge.
       - name: bandit
         run: bandit -r apps/api/src mcp-servers -q -f sarif -o bandit.sarif || true
       - name: semgrep
         run: semgrep --config=p/python --config=p/security-audit --sarif -o semgrep.sarif . || true
+
+      # Guarded on the file existing, and non-fatal: uploading requires code
+      # scanning to be enabled on the repository, and a repo without it should
+      # not fail its whole security workflow over a missing feature.
       - uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('bandit.sarif') != ''
+        continue-on-error: true
         with:
           sarif_file: bandit.sarif
           category: bandit
       - uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('semgrep.sarif') != ''
+        continue-on-error: true
         with:
           sarif_file: semgrep.sarif
           category: semgrep

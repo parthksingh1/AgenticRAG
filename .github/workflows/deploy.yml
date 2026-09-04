@@ -6,8 +6,11 @@
 name: Deploy
 
 on:
-  push:
-    branches: [main]
+  # Deliberately manual. The Fly, Vercel and Prometheus secrets this workflow
+  # needs have never been provisioned — docs/DEMO.md says plainly that nothing
+  # is deployed — so running it on every push would show a permanent failure
+  # for infrastructure that does not exist. Enable the push trigger when there
+  # is somewhere real to deploy to.
   workflow_dispatch:
 
 concurrency:
@@ -24,6 +27,10 @@ jobs:
   images:
     name: Build and push images
     runs-on: ubuntu-latest
+    outputs:
+      # Exposed as a job output because `steps` context is scoped to the job
+      # that defined it; the canary job below needs the same lowercase name.
+      repo: ${{ steps.image.outputs.repo }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -32,6 +39,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Lowercase the image name
+        id: image
+        # ghcr.io rejects uppercase image names, and this repository is
+        # parthksingh1/AgenticRAG, so github.repository cannot be used as-is.
+        run: echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v6
         with:
           context: apps/api
@@ -39,8 +52,8 @@ jobs:
           # Tagged with the commit as well as latest, so a rollback names a
           # specific build rather than "whatever latest was an hour ago".
           tags: |
-            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
-            ghcr.io/${{ github.repository }}/api:latest
+            ghcr.io/${{ steps.image.outputs.repo }}/api:${{ github.sha }}
+            ghcr.io/${{ steps.image.outputs.repo }}/api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -68,7 +81,8 @@ jobs:
 
   canary:
     name: Canary rollout
-    needs: migrate
+    # images as well as migrate: the image name is read from its job output.
+    needs: [images, migrate]
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -82,7 +96,7 @@ jobs:
       - name: Deploy to 10% of traffic
         run: |
           flyctl deploy \
-            --image ghcr.io/${{ github.repository }}/api:${{ github.sha }} \
+            --image ghcr.io/${{ needs.images.outputs.repo }}/api:${{ github.sha }} \
             --strategy canary
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -98,7 +112,7 @@ jobs:
           PROMETHEUS_URL: ${{ secrets.PROMETHEUS_URL }}
 
       - name: Promote to 100%
-        run: flyctl deploy --image ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+        run: flyctl deploy --image ghcr.io/${{ needs.images.outputs.repo }}/api:${{ github.sha }}
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
