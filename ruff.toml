@@ -33,8 +33,6 @@ select = [
 ignore = [
   "D203",   # conflicts with D211
   "D213",   # conflicts with D212
-  "ANN101", # annotating `self` adds noise, no signal (deprecated upstream)
-  "ANN102", # ditto for `cls`
   "ANN401", # Any is occasionally the honest type at boundaries
   "S101",   # assert
 ]

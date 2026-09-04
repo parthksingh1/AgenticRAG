@@ -743,7 +743,7 @@ def test_allowed_decision_does_not_raise() -> None:
 @pytest.mark.parametrize(("capacity", "refill"), [(0, 1.0), (1, 0.0), (1, -1.0)])
 def test_nonsensical_bucket_configuration_is_rejected(capacity: int, refill: float) -> None:
     """A zero-capacity bucket denies everything forever; that is never the intent."""
-    with pytest.raises(ValueError, match="capacity|refill_per_second"):
+    with pytest.raises(ValueError, match=r"capacity|refill_per_second"):
         InMemoryTokenBucket(capacity=capacity, refill_per_second=refill)
 
 

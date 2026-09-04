@@ -186,7 +186,7 @@ async def _ingest_file(path: Path, *, title: str) -> None:
     from src.services.storage import ObjectStorage
 
     settings = get_settings()
-    data = path.read_bytes()
+    data = await asyncio.to_thread(path.read_bytes)
 
     storage = ObjectStorage(settings)
     # Create the buckets if they are not there. In compose the minio-init

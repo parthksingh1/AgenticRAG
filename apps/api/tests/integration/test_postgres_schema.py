@@ -16,11 +16,16 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+#: Resolved once at import. Path.resolve() hits the filesystem, so doing it
+#: inside the async fixture is a blocking call on the event loop (ASYNC240).
+_API_ROOT = Path(__file__).resolve().parents[2]
 
 pytestmark = [
     pytest.mark.integration,
@@ -60,14 +65,12 @@ def postgres_url() -> Iterator[str]:
 async def migrated_engine(postgres_url: str) -> AsyncIterator[object]:
     """Apply the migration and yield an engine bound to the result."""
     import asyncio
-    from pathlib import Path
 
     from alembic import command
     from alembic.config import Config
 
-    root = Path(__file__).resolve().parents[2]
-    config = Config(str(root / "alembic.ini"))
-    config.set_main_option("script_location", str(root / "alembic"))
+    config = Config(str(_API_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(_API_ROOT / "alembic"))
     config.set_main_option("sqlalchemy.url", postgres_url)
 
     os.environ["DATABASE_URL"] = postgres_url

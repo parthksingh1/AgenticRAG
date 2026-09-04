@@ -114,7 +114,8 @@ async def run(*, write: bool, report_path: str | None) -> int:
         print("\n(dry run — nothing was written; pass --write to persist)")
 
     if report_path:
-        Path(report_path).write_text(
+        await asyncio.to_thread(
+            Path(report_path).write_text,
             _markdown(lines, labelled=labelled, drifted=drifted, written=write),
             encoding="utf-8",
         )

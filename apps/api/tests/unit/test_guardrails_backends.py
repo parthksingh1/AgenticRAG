@@ -470,7 +470,7 @@ async def test_bucket_script_is_registered_once() -> None:
 @pytest.mark.parametrize(("capacity", "refill"), [(0, 1.0), (5, 0.0)])
 def test_redis_bucket_rejects_nonsensical_configuration(capacity: int, refill: float) -> None:
     """Same validation as the in-memory bucket, so the two cannot diverge."""
-    with pytest.raises(ValueError, match="capacity|refill_per_second"):
+    with pytest.raises(ValueError, match=r"capacity|refill_per_second"):
         TokenBucket(redis=FakeRedis(), capacity=capacity, refill_per_second=refill)
 
 

@@ -112,18 +112,6 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 20
-      minio:
-        # The integration suite reaches object storage; without this the
-        # bucket call is refused on :9000 and the job fails on a dependency
-        # the job name did not mention.
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports: ["9000:9000"]
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 5s --health-timeout 5s --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -131,6 +119,20 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -e "apps/api[dev]"
+      - name: Start MinIO
+        # A step rather than a service container: the official image needs
+        # `server /data` as its command and service containers cannot specify
+        # one. bitnami/minio needed no command, which is why it was used here,
+        # but it no longer publishes a :latest tag -- the pull failed with
+        # "manifest unknown" and took the job with it. Pinned to the same
+        # release docker-compose.yml uses.
+        run: |
+          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin             -e MINIO_ROOT_PASSWORD=minioadmin             minio/minio:RELEASE.2024-09-13T20-26-02Z server /data
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 2
+          done
+          curl -sf http://localhost:9000/minio/health/live
       - name: Migrate
         working-directory: apps/api
         env:
@@ -233,17 +235,6 @@ jobs:
       redis:
         image: redis:7-alpine
         ports: ["6379:6379"]
-      minio:
-        # scripts/seed_demo_tenant.py calls storage.ensure_buckets(), so any
-        # job that seeds needs object storage or the bucket call is refused.
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports: ["9000:9000"]
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 5s --health-timeout 5s --health-retries 30
     env:
       AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag
       AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag
@@ -264,6 +255,20 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: pip install -e "apps/api[dev]"
+      - name: Start MinIO
+        # A step rather than a service container: the official image needs
+        # `server /data` as its command and service containers cannot specify
+        # one. bitnami/minio needed no command, which is why it was used here,
+        # but it no longer publishes a :latest tag -- the pull failed with
+        # "manifest unknown" and took the job with it. Pinned to the same
+        # release docker-compose.yml uses.
+        run: |
+          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin             -e MINIO_ROOT_PASSWORD=minioadmin             minio/minio:RELEASE.2024-09-13T20-26-02Z server /data
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 2
+          done
+          curl -sf http://localhost:9000/minio/health/live
       - working-directory: apps/api
         run: alembic upgrade head
       - run: python scripts/seed_demo_tenant.py --wait-for-index

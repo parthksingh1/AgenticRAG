@@ -371,3 +371,8 @@ volumes:
   miniodata:
   neo4jdata:
   hf-cache:
+  # Both are referenced by the obs-profile services; compose rejects the whole
+  # project when a service names a volume that was never declared, which is why
+  # `docker compose config` failed even for the core profile.
+  promdata:
+  grafanadata:

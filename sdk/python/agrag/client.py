@@ -289,10 +289,13 @@ class AsyncAgRag:
         through the API — which would tie up a request handler for the whole
         transfer and cap the file size at the platform's request limit.
         """
+        import asyncio
         from pathlib import Path
 
         file_path = Path(path)
-        data = file_path.read_bytes()
+        # Off the event loop: reading a large upload synchronously would stall
+        # every other coroutine in the caller's application, not just this one.
+        data = await asyncio.to_thread(file_path.read_bytes)
 
         slot = await self._request(
             "POST",
@@ -518,10 +521,10 @@ def _mime_of(filename: str) -> str:
 
 
 __all__: Sequence[str] = (
-    "AgRag",
-    "AsyncAgRag",
-    "Answer",
     "APIError",
+    "AgRag",
+    "Answer",
+    "AsyncAgRag",
     "AuthenticationError",
     "Citation",
     "Document",

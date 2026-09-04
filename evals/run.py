@@ -37,6 +37,10 @@ from evals.report import write_all
 from evals.runner import run_set
 from evals.types import EvalCase
 
+#: Resolved at import: Path.resolve() touches the filesystem, so it must not
+#: run inside an async function.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 DEFAULT_BASELINE = "evals/baselines/main.json"
 DEFAULT_REPORTS = "evals/reports"
 
@@ -165,7 +169,11 @@ async def main(argv: list[str] | None = None) -> int:
     print(f"\nreport: {paths['html']}\n        {paths['json']}")
 
     if args.comment_out and gate_report is not None:
-        Path(args.comment_out).write_text(markdown_comment(payload, gate_report), encoding="utf-8")
+        await asyncio.to_thread(
+            Path(args.comment_out).write_text,
+            markdown_comment(payload, gate_report),
+            encoding="utf-8",
+        )
         print(f"comment: {args.comment_out}")
 
     if args.update_baseline:
@@ -217,7 +225,7 @@ async def _build_judges(args: argparse.Namespace) -> tuple[Any, tuple[str, ...],
     if args.no_judge or args.offline or not args.judges.strip():
         return None, (), {}
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps" / "api"))
+    sys.path.insert(0, str(_REPO_ROOT / "apps" / "api"))
     from src.core.config import get_settings
     from src.main import _build_providers
     from src.services.llm.router import LLMRouter, ModelPolicy

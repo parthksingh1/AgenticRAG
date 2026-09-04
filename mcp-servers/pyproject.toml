@@ -50,7 +50,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "UP", "B", "BLE", "C4", "SIM", "S", "RET", "D", "ANN", "RUF"]
-ignore = ["D203", "D213", "ANN101", "ANN102", "ANN401", "S101"]
+ignore = ["D203", "D213", "ANN401", "S101"]
 
 [tool.ruff.lint.per-file-ignores]
 # The sandbox deliberately calls exec on compiled-restricted bytecode.

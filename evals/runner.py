@@ -309,7 +309,7 @@ def current_git_sha() -> str | None:
     if sha := os.getenv("GITHUB_SHA"):
         return sha[:40]
     try:
-        result = subprocess.run(  # noqa: S603 - fixed argv, shell=False
+        result = subprocess.run(
             ["git", "rev-parse", "HEAD"],  # noqa: S607 - resolved from PATH by design
             capture_output=True,
             text=True,
