@@ -4,6 +4,11 @@
 
 **A multi-tenant, agentic RAG platform with an evals suite that gates its own deployments.**
 
+[![CI](https://github.com/parthksingh1/AgenticRAG/actions/workflows/ci.yml/badge.svg)](https://github.com/parthksingh1/AgenticRAG/actions/workflows/ci.yml)
+[![Security](https://github.com/parthksingh1/AgenticRAG/actions/workflows/security.yml/badge.svg)](https://github.com/parthksingh1/AgenticRAG/actions/workflows/security.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Next.js 15](https://img.shields.io/badge/next.js-15-black.svg)](https://nextjs.org/)
+
 [Architecture](docs/ARCHITECTURE.md) · [Evals](docs/EVALS.md) · [Security](docs/SECURITY.md) · [Testing](docs/TESTING.md) · [Demo](docs/DEMO.md)
 
 </div>
@@ -18,7 +23,7 @@ ship a change that makes any of it worse.
 This is a system built around those problems.
 
 ```bash
-git clone <repo> && cd agentic-rag
+git clone https://github.com/parthksingh1/AgenticRAG.git && cd AgenticRAG
 cp .env.example .env          # works with no API keys; add them for real answers
 docker compose up             # ~4 minutes on a cold machine
 open http://localhost:3000
@@ -137,15 +142,42 @@ Nothing here is illustrative, and nothing was typed in by hand.
 Current test suite, at the commit you are reading:
 
 ```
-apps/api    647 unit tests + 238 doctests
-mcp-servers  82 tests
-evals        35 doctests
+apps/api     938 tests (unit + doctests + contract)
+mcp-servers   82 tests
+coverage      66% overall; 100% line and branch on guardrails and fusion
 ```
+
+The 66% is the real number, not a target. `docs/TESTING.md` names the four
+modules carrying the shortfall and why they are the ones left: they are the
+I/O-heavy paths that need fake backends rather than fixtures. The gate is set
+at 65 so it reflects the suite as it stands -- a gate pinned above reality
+fails every build and ends up deleted rather than satisfied.
 
 Answer-quality metrics are **not** printed in this README, because they depend on
 which provider and model you configure. Run the command above and you will get
 your own — that is the point. `docs/EVALS.md` explains how to read them and what
 the gate thresholds mean.
+
+---
+
+## What running it actually found
+
+Every layer here was executed, not just written, and each one contained bugs
+that reading could not have surfaced. They are worth listing because the
+failures are more informative than the features:
+
+| Found by | Bug |
+|---|---|
+| Compiling the frontend | The API client was generic over `z.ZodType<T>`, which infers from the **input** side — so every field with a `.default()` came back optional and four pages would not type-check |
+| Running the seed script | `SentenceTransformerEmbedder.__init__` never imported its dependency; it lazy-loaded inside `embed()`, so every caller's `try/except` fallback was dead and the failure surfaced mid-ingestion, after the user had been told their upload was processing |
+| Starting the stack | The app read bare `DATABASE_URL` while CI, Helm and Terraform all set `AGRAG_*` — every deployment artifact was setting variables the application silently ignored |
+| Contract tests | `response_model=None` had quietly dropped `OpenAIChatResponse` from the OpenAPI document, so every generated SDK lost the shape |
+| Strict type-checking | A custom `_NotGiven` sentinel failed Anthropic's `isinstance` check, so "omitted" parameters were serialised into the request body; and both `stream()` paths dropped `tools`, meaning a streamed tool-calling turn could never invoke a tool |
+| CI on a clean machine | `aiosqlite` was used by every test fixture and never declared — it was present locally as a transitive install |
+
+The last one is the general lesson: **a green suite on the machine that wrote
+it proves less than it appears to.** `docs/TESTING.md` separates what has been
+executed from what has only been written.
 
 ---
 
