@@ -9,7 +9,7 @@
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![Next.js 15](https://img.shields.io/badge/next.js-15-black.svg)](https://nextjs.org/)
 
-[Architecture](docs/ARCHITECTURE.md) · [Evals](docs/EVALS.md) · [Security](docs/SECURITY.md) · [Testing](docs/TESTING.md) · [Demo](docs/DEMO.md)
+[Architecture](docs/ARCHITECTURE.md) · [Evals](docs/EVALS.md) · [Security](docs/SECURITY.md) · [Testing](docs/TESTING.md) · [Demo](docs/DEMO.md) · [Deploying the demo](docs/DEPLOYING-THE-DEMO.md)
 
 </div>
 
@@ -40,6 +40,31 @@ No API key is required to boot. Every optional dependency degrades rather than
 fails — no Redis means no caching, no OpenSearch means dense-only retrieval,
 no provider key means a hashing embedder and a clear error on generation — and
 `/readyz` reports exactly which capabilities are live.
+
+---
+
+## What it looks like
+
+These are captured from the demo build described in
+[docs/DEPLOYING-THE-DEMO.md](docs/DEPLOYING-THE-DEMO.md) — the real interface on
+fixture data, which is why each one carries a banner saying so. The banner is
+the point: a screenshot of a demo that does not admit to being one is a claim
+about behaviour that nobody can check.
+
+| | |
+|---|---|
+| ![An answer with an inline citation](docs/screenshots/01-answer-with-citations.png) | ![A question needing two sections](docs/screenshots/02-multi-hop.png) |
+| **A grounded answer.** The superscript marker opens the passage that supports the claim, not the whole document. | **Two hops.** Neither the approval tier nor the 45-day deadline ranks well for the question as asked; the answer applies the rule rather than quoting it. |
+| ![Declining a question the corpus cannot answer](docs/screenshots/03-refusal.png) | ![A prompt injection being blocked](docs/screenshots/05-injection-blocked.png) |
+| **Knowing when to refuse.** The handbook has no insurance provider in it. A confident answer here would be wrong in a way the reader cannot detect. | **An attack that fails.** Blocked at the input guardrail before a model is called, which is why the cost is zero. |
+| ![Groundedness by run against the gate floor](docs/screenshots/08-admin-evals.png) | ![Reliability diagrams for two judges](docs/screenshots/09-admin-calibration.png) |
+| **The gate, drawn.** The dashed line is the absolute floor. The run that dips under it is the one marked `fail`. | **Judges, checked.** Stated confidence against observed accuracy. The dashed diagonal is perfect calibration; distance from it is the ECE that weights each judge's vote. |
+
+More: [retrieval playground](docs/screenshots/07-playground.png) ·
+[documents](docs/screenshots/06-documents.png) ·
+[cost](docs/screenshots/10-admin-cost.png) ·
+[graph](docs/screenshots/11-graph.png) ·
+[tool call](docs/screenshots/04-tool-call.png)
 
 ---
 

@@ -99,6 +99,19 @@ k6 run scripts/load/chat.js               # p95 TTFT and error rate
 The eval report lands in `evals/reports/` as self-contained HTML — failures
 expanded, passes collapsed, per-intent breakdown at the top.
 
+## The demo build
+
+There is a second way to see this, for machines that cannot host nine services:
+a frontend-only build on fixture data, deployable to Vercel with no backend at
+all. It is the real interface — same components, same streaming code, same
+schemas — and it says on every screen that its data is canned.
+
+See [DEPLOYING-THE-DEMO.md](DEPLOYING-THE-DEMO.md). The screenshots in the README
+come from it.
+
+It is not a substitute for running the stack. It cannot answer a question that
+is not one of the five, because there is no retrieval behind it.
+
 ## Deployment
 
 Not yet deployed publicly. The pipeline is written and tested
