@@ -4,11 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  ArrowUpRight,
   Brain,
   ChevronDown,
   Copy,
   RefreshCw,
   Send,
+  Sparkles,
   Square,
   ThumbsDown,
   ThumbsUp,
@@ -159,8 +161,20 @@ export function Chat() {
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="flex items-center justify-between border-b border-line px-5 py-3">
-        <h1 className="text-sm font-semibold">Chat</h1>
+      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-bg/85 px-5 py-3 backdrop-blur-md">
+        <div className="flex items-center gap-2.5">
+          <h1 className="text-[13.5px] font-semibold tracking-tight">Chat</h1>
+          <span className="hidden items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[10.5px] text-muted sm:inline-flex">
+            <span
+              aria-hidden
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                busy ? "animate-pulse bg-amber-500" : "bg-emerald-500",
+              )}
+            />
+            {busy ? "Generating" : "Ready"}
+          </span>
+        </div>
         {turns.length > 0 && (
           <button
             type="button"
@@ -168,7 +182,7 @@ export function Chat() {
               conversationRef.current = undefined;
               setTurns([]);
             }}
-            className="text-xs text-muted hover:text-fg"
+            className="rounded-lg border border-line px-2.5 py-1.5 text-[11.5px] text-muted transition-colors hover:border-accent/40 hover:text-fg"
           >
             New conversation
           </button>
@@ -176,13 +190,13 @@ export function Chat() {
       </header>
 
       <div
-        className="flex-1 overflow-y-auto px-5"
+        className="flex-1 overflow-y-auto px-5 [scrollbar-gutter:stable]"
         onScroll={(e) => {
           const el = e.currentTarget;
           scrollLockedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
       >
-        <div className="mx-auto w-full max-w-3xl py-6">
+        <div className="mx-auto w-full max-w-3xl py-7">
           {turns.length === 0 ? <Empty onPick={send} /> : null}
 
           {turns.map((turn, index) => (
@@ -212,28 +226,60 @@ export function Chat() {
 
 function Empty({ onPick }: { onPick: (q: string) => void }) {
   const suggestions = [
-    "What is the carry-over limit for annual leave, and when does it expire?",
-    "I spent $5,000 two months ago. Who approves it and can I still claim it?",
-    "What is the deploy freeze policy?",
-    "What is the company's dental insurance provider?",
+    {
+      q: "What is the carry-over limit for annual leave, and when does it expire?",
+      note: "A direct lookup, answered with an inline citation",
+    },
+    {
+      q: "I spent $5,000 two months ago. Who approves it and can I still claim it?",
+      note: "Two sections no single chunk contains",
+    },
+    {
+      q: "If I have 26 leave days and use 11, how many are left?",
+      note: "Retrieval plus a tool call",
+    },
+    {
+      q: "What is the company's dental insurance provider?",
+      note: "Not in the corpus — the right answer says so",
+    },
   ];
 
   return (
-    <div className="py-12">
-      <h2 className="text-lg font-medium">Ask the corpus something</h2>
-      <p className="mt-1 text-sm text-muted">
-        Answers cite their sources. The last suggestion is deliberately
-        unanswerable — a good system says so rather than inventing one.
-      </p>
-      <div className="mt-5 grid gap-2 sm:grid-cols-2">
-        {suggestions.map((s) => (
+    <div className="animate-fade-up py-14">
+      <div className="mx-auto max-w-xl text-center">
+        <span
+          aria-hidden
+          className="accent-gradient mx-auto mb-5 grid h-12 w-12 place-items-center rounded-2xl text-white shadow-md"
+        >
+          <Sparkles size={22} />
+        </span>
+        <h2 className="text-[26px] font-semibold leading-tight tracking-[-0.02em]">
+          Ask the corpus something
+        </h2>
+        <p className="mx-auto mt-2.5 max-w-md text-[13.5px] leading-relaxed text-muted">
+          Every answer cites the passage it came from. The last suggestion is
+          deliberately unanswerable — a system worth trusting says so rather than
+          inventing a provider.
+        </p>
+      </div>
+
+      <div className="mx-auto mt-9 grid max-w-2xl gap-2.5 sm:grid-cols-2">
+        {suggestions.map(({ q, note }) => (
           <button
-            key={s}
+            key={q}
             type="button"
-            onClick={() => onPick(s)}
-            className="rounded-lg border border-line bg-card p-3 text-left text-sm transition-colors hover:border-accent/40"
+            onClick={() => onPick(q)}
+            className="surface group p-3.5 text-left transition-all hover:-translate-y-px hover:border-accent/35 hover:shadow-md"
           >
-            {s}
+            <span className="block text-[13px] font-medium leading-snug">{q}</span>
+            <span className="mt-2 flex items-center gap-1.5 text-[11.5px] text-muted">
+              <ArrowUpRight
+                size={12}
+                aria-hidden
+                className="shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+              />
+              {note}
+            </span>
           </button>
         ))}
       </div>
@@ -255,8 +301,8 @@ function Message({
 
   if (turn.role === "user") {
     return (
-      <div className="mb-6 flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-sm text-white">
+      <div className="mb-7 flex justify-end">
+        <div className="accent-gradient max-w-[80%] animate-fade-up rounded-[18px] rounded-br-[6px] px-4 py-2.5 text-[13.5px] leading-relaxed text-white shadow-md">
           {turn.content}
         </div>
       </div>
@@ -272,7 +318,7 @@ function Message({
           {turn.error}
         </p>
       ) : (
-        <div className="prose-answer text-[0.95rem] leading-relaxed">
+        <div className="prose-answer animate-fade-up text-[14.5px] leading-[1.7]">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -300,7 +346,7 @@ function Message({
               <button
                 type="button"
                 onClick={() => onCitationClick(c)}
-                className="rounded-md border border-line bg-card px-2 py-1 text-xs text-muted transition-colors hover:border-accent/40 hover:text-fg"
+                className="surface px-2.5 py-1.5 text-[11.5px] text-muted transition-all hover:-translate-y-px hover:border-accent/40 hover:text-fg hover:shadow-md"
               >
                 <span className="font-medium text-accent">[{c.index}]</span> {c.document_title}
                 {c.page_number ? ` · p.${c.page_number}` : ""}
@@ -363,9 +409,9 @@ function Thinking({ steps, live }: { steps: string[]; live?: boolean }) {
     <details
       open={open}
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
-      className="mb-3 rounded-lg border border-line bg-card"
+      className="surface mb-3.5 overflow-hidden"
     >
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs text-muted">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[11.5px] font-medium text-muted transition-colors hover:text-fg">
         <Brain size={13} aria-hidden />
         <span>
           {live ? "Thinking" : `${steps.length} reasoning ${steps.length === 1 ? "step" : "steps"}`}
@@ -376,7 +422,7 @@ function Thinking({ steps, live }: { steps: string[]; live?: boolean }) {
           className={cn("ml-auto transition-transform", open && "rotate-180")}
         />
       </summary>
-      <ol className="space-y-1 border-t border-line px-3 py-2 text-xs text-muted">
+      <ol className="space-y-1.5 border-t border-line px-3 py-2.5 text-[11.5px] leading-relaxed text-muted">
         {steps.map((step, i) => (
           <li key={i} className="flex gap-2">
             <span className="tabular-nums opacity-60">{i + 1}.</span>
@@ -413,8 +459,8 @@ function Composer({
   }, [value]);
 
   return (
-    <div className="border-t border-line px-5 py-3">
-      <div className="mx-auto flex w-full max-w-3xl items-end gap-2 rounded-2xl border border-line bg-card p-2">
+    <div className="bg-gradient-to-t from-bg via-bg to-transparent px-5 pb-4 pt-3">
+      <div className="surface-raised mx-auto flex w-full max-w-3xl items-end gap-2 rounded-[20px] p-2 transition-shadow focus-within:border-accent/40 focus-within:shadow-lg">
         <textarea
           ref={ref}
           rows={1}
@@ -430,19 +476,19 @@ function Composer({
           }}
           placeholder="Ask about the documents…"
           aria-label="Your question"
-          className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted"
+          className="max-h-[200px] flex-1 resize-none bg-transparent px-2.5 py-2 text-[13.5px] leading-relaxed outline-none placeholder:text-muted/80"
         />
         <button
           type="button"
           onClick={busy ? onStop : onSubmit}
           disabled={!busy && !value.trim()}
           aria-label={busy ? "Stop generating" : "Send"}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent text-white transition-opacity disabled:opacity-40"
+          className="accent-gradient grid h-9 w-9 shrink-0 place-items-center rounded-[14px] text-white shadow-sm transition-all hover:brightness-110 disabled:opacity-35 disabled:shadow-none"
         >
           {busy ? <Square size={15} fill="currentColor" /> : <Send size={16} />}
         </button>
       </div>
-      <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-muted">
+      <p className="mx-auto mt-2.5 max-w-3xl text-center text-[11px] text-muted/80">
         Answers are grounded in the indexed corpus and cite their sources.
       </p>
     </div>

@@ -50,8 +50,8 @@ export default function PlaygroundPage() {
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="border-b border-line px-5 py-3">
-        <h1 className="text-sm font-semibold">Retrieval playground</h1>
+      <header className="sticky top-0 z-10 border-b border-line bg-bg/85 px-5 py-3 backdrop-blur-md">
+        <h1 className="text-[13.5px] font-semibold tracking-tight">Retrieval playground</h1>
       </header>
 
       <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -62,7 +62,7 @@ export default function PlaygroundPage() {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void run()}
               aria-label="Query to compare"
-              className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent"
+              className="flex-1 surface px-3 py-2 text-sm outline-none focus:border-accent"
             />
             <button
               type="button"

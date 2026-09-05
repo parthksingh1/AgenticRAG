@@ -95,8 +95,8 @@ export default function GraphPage() {
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="border-b border-line px-5 py-3">
-        <h1 className="text-sm font-semibold">Knowledge graph</h1>
+      <header className="sticky top-0 z-10 border-b border-line bg-bg/85 px-5 py-3 backdrop-blur-md">
+        <h1 className="text-[13.5px] font-semibold tracking-tight">Knowledge graph</h1>
         <p className="mt-0.5 text-xs text-muted">
           Entities and relations extracted during ingestion. Answers multi-hop
           questions that chunk retrieval cannot.

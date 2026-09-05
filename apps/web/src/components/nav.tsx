@@ -29,14 +29,28 @@ export function Nav() {
   return (
     <nav
       aria-label="Primary"
-      className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-line bg-card py-3 sm:w-52 sm:items-stretch sm:px-3"
+      className="flex w-16 shrink-0 flex-col items-center gap-0.5 border-r border-line bg-card py-4 sm:w-60 sm:items-stretch sm:px-3"
     >
-      <div className="mb-4 px-2 text-sm font-semibold tracking-tight">
-        <span className="hidden sm:inline">AgenticRAG</span>
-        <span className="sm:hidden" aria-hidden>
+      <div className="mb-6 flex items-center gap-2.5 px-1.5 sm:px-2">
+        <span
+          aria-hidden
+          className="accent-gradient grid h-8 w-8 shrink-0 place-items-center rounded-[10px] text-[13px] font-bold text-white shadow-sm"
+        >
           AR
         </span>
+        <span className="hidden min-w-0 sm:block">
+          <span className="block truncate text-[13.5px] font-semibold leading-tight tracking-tight">
+            AgenticRAG
+          </span>
+          <span className="block truncate text-[11px] leading-tight text-muted">
+            Evaluation-gated RAG
+          </span>
+        </span>
       </div>
+
+      <p className="mb-1 hidden px-2.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted/70 sm:block">
+        Workspace
+      </p>
 
       {LINKS.map(({ href, label, icon: Icon }) => {
         const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -46,20 +60,29 @@ export function Nav() {
             href={href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors",
+              "group relative flex items-center gap-3 rounded-[10px] px-2.5 py-[9px] text-[13.5px] transition-all",
               active
-                ? "bg-accent/10 font-medium text-accent"
-                : "text-muted hover:bg-line/50 hover:text-fg",
+                ? "bg-accent/[0.09] font-medium text-accent shadow-[inset_0_0_0_1px_rgb(var(--accent)/0.14)]"
+                : "text-muted hover:bg-line/60 hover:text-fg",
             )}
           >
-            <Icon size={17} aria-hidden />
+            {/* A left rail on the active item. The tint alone is legible but
+                not locating; the rail is what the eye returns to. */}
+            <span
+              aria-hidden
+              className={cn(
+                "absolute left-0 top-1/2 h-4 w-[2.5px] -translate-y-1/2 rounded-r-full transition-opacity",
+                active ? "accent-gradient opacity-100" : "opacity-0",
+              )}
+            />
+            <Icon size={16.5} aria-hidden className="shrink-0" />
             <span className="hidden sm:inline">{label}</span>
             <span className="sr-only sm:hidden">{label}</span>
           </Link>
         );
       })}
 
-      <div className="mt-auto">
+      <div className="mt-auto border-t border-line pt-2">
         <ThemeToggle />
       </div>
     </nav>
@@ -99,16 +122,16 @@ function ThemeToggle() {
       type="button"
       onClick={toggle}
       aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
-      className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-muted transition-colors hover:bg-line/50 hover:text-fg"
+      className="flex w-full items-center gap-3 rounded-[10px] px-2.5 py-[9px] text-[13.5px] text-muted transition-colors hover:bg-line/60 hover:text-fg"
     >
       {mounted ? (
         dark ? (
-          <Sun size={17} aria-hidden />
+          <Sun size={16.5} aria-hidden />
         ) : (
-          <Moon size={17} aria-hidden />
+          <Moon size={16.5} aria-hidden />
         )
       ) : (
-        <span className="block h-[17px] w-[17px]" />
+        <span className="block h-[16.5px] w-[16.5px]" />
       )}
       <span className="hidden sm:inline">{mounted && dark ? "Light" : "Dark"}</span>
     </button>

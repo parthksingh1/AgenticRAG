@@ -62,8 +62,8 @@ export default function DocumentsPage() {
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="flex items-center justify-between border-b border-line px-5 py-3">
-        <h1 className="text-sm font-semibold">Documents</h1>
+      <header className="flex items-center justify-between sticky top-0 z-10 border-b border-line bg-bg/85 px-5 py-3 backdrop-blur-md">
+        <h1 className="text-[13.5px] font-semibold tracking-tight">Documents</h1>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}

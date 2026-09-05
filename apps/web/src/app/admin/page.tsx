@@ -26,8 +26,8 @@ export default function AdminPage() {
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="border-b border-line px-5 pt-3">
-        <h1 className="text-sm font-semibold">Admin</h1>
+      <header className="sticky top-0 z-10 border-b border-line bg-bg/85 px-5 pt-4 backdrop-blur-md">
+        <h1 className="text-[13.5px] font-semibold tracking-tight">Admin</h1>
         <div role="tablist" className="mt-3 flex gap-1 overflow-x-auto">
           {TABS.map((t) => (
             <button
@@ -37,9 +37,9 @@ export default function AdminPage() {
               aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
               className={cn(
-                "whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors",
+                "whitespace-nowrap border-b-2 px-3 py-2.5 text-[13px] transition-colors",
                 tab === t.id
-                  ? "border-accent text-fg"
+                  ? "border-accent font-medium text-fg"
                   : "border-transparent text-muted hover:text-fg",
               )}
             >
@@ -86,7 +86,7 @@ function CostPanel() {
       </div>
 
       {data.anomalies.length > 0 && (
-        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
+        <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-3.5 py-3 text-sm">
           <p className="font-medium text-amber-500">Cost anomalies</p>
           <p className="mt-0.5 text-xs text-muted">
             Days more than 3σ above the mean. Computed the same way as the
@@ -98,7 +98,7 @@ function CostPanel() {
 
       {data.by_day.length > 1 && (
         <>
-          <h2 className="mt-6 text-sm font-medium">Daily spend</h2>
+          <h2 className="mb-2 mt-7 text-[13.5px] font-semibold tracking-tight">Daily spend</h2>
           <BarChart
             points={data.by_day.map((d) => ({
               label: d.usage_date.slice(5),
@@ -109,12 +109,12 @@ function CostPanel() {
         </>
       )}
 
-      <h2 className="mt-6 text-sm font-medium">By model</h2>
+      <h2 className="mb-2 mt-7 text-[13.5px] font-semibold tracking-tight">By model</h2>
       {Object.keys(data.by_model).length === 0 ? (
         <Message text="No usage recorded yet." />
       ) : (
-        <table className="mt-2 w-full text-sm">
-          <thead className="text-left text-xs text-muted">
+        <table className="w-full text-[13px]">
+          <thead className="text-left text-[11px] uppercase tracking-[0.05em] text-muted">
             <tr className="border-b border-line">
               <th className="py-2 font-medium">Model</th>
               <th className="py-2 text-right font-medium">Spend</th>
@@ -198,9 +198,9 @@ function ApiPanel({ tab }: { tab: string }) {
   return (
     <>
       <PanelChart tab={tab} rows={rows} />
-      <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="text-left text-xs text-muted">
+      <div className="surface overflow-x-auto px-4 py-1">
+      <table className="w-full text-[13px]">
+        <thead className="text-left text-[11px] uppercase tracking-[0.05em] text-muted">
           <tr className="border-b border-line">
             {columns.map((c) => (
               <th key={c} className="whitespace-nowrap py-2 pr-4 font-medium">
@@ -247,8 +247,8 @@ function PanelChart({ tab, rows }: { tab: string; rows: Record<string, unknown>[
     if (points.length < 2) return null;
 
     return (
-      <section className="mb-6 rounded-xl border border-line bg-card p-4">
-        <h3 className="text-sm font-medium">Groundedness by run</h3>
+      <section className="surface mb-6 p-5">
+        <h3 className="text-[13.5px] font-semibold tracking-tight">Groundedness by run</h3>
         <p className="mt-0.5 text-xs text-muted">
           The dashed line is the absolute floor in the gate. A delta-only gate would let
           this ratchet downward one acceptable drop at a time.
@@ -265,8 +265,8 @@ function PanelChart({ tab, rows }: { tab: string; rows: Record<string, unknown>[
     if (judges.length === 0) return null;
 
     return (
-      <section className="mb-6 rounded-xl border border-line bg-card p-4">
-        <h3 className="text-sm font-medium">Reliability</h3>
+      <section className="surface mb-6 p-5">
+        <h3 className="text-[13.5px] font-semibold tracking-tight">Reliability</h3>
         <p className="mt-0.5 text-xs text-muted">
           Stated confidence against observed accuracy. The dashed diagonal is perfect
           calibration; a curve below it is a judge claiming more certainty than it earns,
@@ -303,11 +303,16 @@ function format(value: unknown): string {
 
 function Card({ label, value, tone }: { label: string; value: string; tone?: "warn" }) {
   return (
-    <div className="rounded-xl border border-line bg-card p-4">
-      <p className={cn("text-2xl font-semibold tabular-nums", tone === "warn" && "text-amber-500")}>
+    <div className="surface p-4 transition-shadow hover:shadow-md">
+      <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted">{label}</p>
+      <p
+        className={cn(
+          "mt-1.5 text-[26px] font-semibold leading-none tracking-[-0.02em] tabular-nums",
+          tone === "warn" && "text-amber-500",
+        )}
+      >
         {value}
       </p>
-      <p className="mt-0.5 text-xs text-muted">{label}</p>
     </div>
   );
 }
