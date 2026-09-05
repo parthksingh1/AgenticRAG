@@ -18,6 +18,7 @@ import {
 import { streamAnswer, type Citation } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { CitationSheet } from "@/components/citation-sheet";
+import { Inspector, emptyRun, type RunState } from "@/components/inspector";
 
 /** Read a string off an untrusted event payload, or undefined. */
 function str(value: unknown): string | undefined {
@@ -46,6 +47,7 @@ export function Chat() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [openCitation, setOpenCitation] = useState<Citation | null>(null);
+  const [run, setRun] = useState<RunState | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const conversationRef = useRef<string | undefined>(undefined);
   const endRef = useRef<HTMLDivElement>(null);
@@ -81,6 +83,9 @@ export function Chat() {
       setTurns((prev) => [...prev, userTurn, assistantTurn]);
       setInput("");
       setBusy(true);
+      // Input guardrails are the first thing the graph runs, and the stream
+      // opening at all is proof they passed.
+      setRun({ ...emptyRun(), stages: { ...emptyRun().stages, guardrails_in: "active" } });
       scrollLockedRef.current = true;
 
       const controller = new AbortController();
@@ -98,15 +103,58 @@ export function Chat() {
           switch (event.type) {
             case "token":
               patch((t) => ({ ...t, content: t.content + (str(data.text) ?? "") }));
+              setRun((r) =>
+                r && r.stages.generate !== "active" && r.stages.generate !== "done"
+                  ? {
+                      ...r,
+                      stages: {
+                        ...r.stages,
+                        // Tokens arriving means everything upstream finished.
+                        // Retrieval is only claimed if citations were seen; a
+                        // question routed away from retrieval skips it.
+                        route: "done",
+                        retrieve: r.citations > 0 ? "done" : "skipped",
+                        rerank: r.citations > 0 ? "done" : "skipped",
+                        generate: "active",
+                      },
+                    }
+                  : r,
+              );
               break;
             case "thinking": {
               const step = str(data.text);
               if (step) patch((t) => ({ ...t, thinking: [...t.thinking, step] }));
+              setRun((r) =>
+                r
+                  ? {
+                      ...r,
+                      thinkingSteps: r.thinkingSteps + 1,
+                      stages: { ...r.stages, guardrails_in: "done", route: "active" },
+                    }
+                  : r,
+              );
               break;
             }
-            case "citations":
-              patch((t) => ({ ...t, citations: (data.citations as Citation[]) ?? [] }));
+            case "citations": {
+              const cites = (data.citations as Citation[]) ?? [];
+              patch((t) => ({ ...t, citations: cites }));
+              setRun((r) =>
+                r
+                  ? {
+                      ...r,
+                      citations: cites.length,
+                      stages: {
+                        ...r.stages,
+                        guardrails_in: "done",
+                        route: "done",
+                        retrieve: "done",
+                        rerank: "done",
+                      },
+                    }
+                  : r,
+              );
               break;
+            }
             case "done":
               conversationRef.current = str(data.conversation_id) ?? conversationRef.current;
               patch((t) => ({
@@ -119,6 +167,31 @@ export function Chat() {
                   cacheHit: str(data.cache_hit) ?? null,
                 },
               }));
+              setRun((r) => {
+                if (!r) return r;
+                // stop_reason tells us whether this ended as an answer or as a
+                // refusal at the output guardrail; the pipeline reads
+                // differently in each case and should not claim otherwise.
+                const blocked = str(data.stop_reason) === "guardrail_block";
+                return {
+                  ...r,
+                  model: str(data.model),
+                  latencyMs: num(data.latency_ms),
+                  costUsd: num(data.cost_usd),
+                  cacheHit: str(data.cache_hit) ?? null,
+                  blocked,
+                  stages: {
+                    ...r.stages,
+                    guardrails_in: blocked ? "done" : r.stages.guardrails_in,
+                    route: blocked ? "skipped" : "done",
+                    retrieve: blocked ? "skipped" : r.stages.retrieve === "pending" ? "skipped" : "done",
+                    rerank: blocked ? "skipped" : r.stages.rerank === "pending" ? "skipped" : "done",
+                    generate: blocked ? "skipped" : "done",
+                    cite: r.citations > 0 ? "done" : "skipped",
+                    guardrails_out: "done",
+                  },
+                };
+              });
               break;
             case "error":
               patch((t) => ({
@@ -160,7 +233,8 @@ export function Chat() {
   }
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
       <header className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-bg/85 px-5 py-3 backdrop-blur-md">
         <div className="flex items-center gap-2.5">
           <h1 className="text-[13.5px] font-semibold tracking-tight">Chat</h1>
@@ -220,6 +294,9 @@ export function Chat() {
       />
 
       <CitationSheet citation={openCitation} onClose={() => setOpenCitation(null)} />
+      </div>
+
+      <Inspector run={run} busy={busy} />
     </div>
   );
 }
