@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, type CostSummary } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { BarChart, LineChart, ReliabilityDiagram } from "@/components/charts";
 
 interface Tab {
   id: string;
@@ -95,6 +96,19 @@ function CostPanel() {
         </div>
       )}
 
+      {data.by_day.length > 1 && (
+        <>
+          <h2 className="mt-6 text-sm font-medium">Daily spend</h2>
+          <BarChart
+            points={data.by_day.map((d) => ({
+              label: d.usage_date.slice(5),
+              value: d.cost_usd,
+            }))}
+            format={(v) => `$${v.toFixed(3)}`}
+          />
+        </>
+      )}
+
       <h2 className="mt-6 text-sm font-medium">By model</h2>
       {Object.keys(data.by_model).length === 0 ? (
         <Message text="No usage recorded yet." />
@@ -129,6 +143,28 @@ function CostPanel() {
 }
 
 /**
+ * Module scope, not component scope, and that placement is load-bearing.
+ *
+ * Built inside the component this is a fresh object on every render, so the
+ * `config` derived from it is a new reference every time. It is in the effect's
+ * dependency list, so the effect re-ran on every render, set rows back to null,
+ * and re-fetched — a loop that never escaped "Loading…". Hoisting it makes the
+ * reference stable.
+ */
+const ENDPOINTS: Record<string, { path: string; empty: string }> = {
+  evals: { path: "/admin/evals/runs", empty: "No eval runs recorded. Run `python -m evals.run`." },
+  calibration: {
+    path: "/admin/evals/calibration",
+    empty: "No calibration yet. It is computed weekly from human labels.",
+  },
+  drift: { path: "/admin/drift", empty: "No drift snapshots yet. They accrue nightly." },
+  failures: { path: "/admin/failures", empty: "No thumbs-down feedback to triage." },
+  prompts: { path: "/admin/prompts", empty: "No prompts loaded." },
+  keys: { path: "/admin/api-keys", empty: "No API keys." },
+  audit: { path: "/admin/audit", empty: "No audit entries." },
+};
+
+/**
  * The remaining admin tabs, each backed by its own endpoint.
  *
  * Rendered generically because the panels differ only in which endpoint they
@@ -136,20 +172,7 @@ function CostPanel() {
  * apart within a month.
  */
 function ApiPanel({ tab }: { tab: string }) {
-  const endpoints: Record<string, { path: string; empty: string }> = {
-    evals: { path: "/admin/evals/runs", empty: "No eval runs recorded. Run `python -m evals.run`." },
-    calibration: {
-      path: "/admin/evals/calibration",
-      empty: "No calibration yet. It is computed weekly from human labels.",
-    },
-    drift: { path: "/admin/drift", empty: "No drift snapshots yet. They accrue nightly." },
-    failures: { path: "/admin/failures", empty: "No thumbs-down feedback to triage." },
-    prompts: { path: "/admin/prompts", empty: "No prompts loaded." },
-    keys: { path: "/admin/api-keys", empty: "No API keys." },
-    audit: { path: "/admin/audit", empty: "No audit entries." },
-  };
-
-  const config = endpoints[tab];
+  const config = ENDPOINTS[tab];
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -157,12 +180,9 @@ function ApiPanel({ tab }: { tab: string }) {
     if (!config) return;
     setRows(null);
     setError(null);
-    fetch(`/api/backend${config.path}`)
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`The API returned ${r.status}.`);
-        return r.json();
-      })
-      .then((body) => setRows(Array.isArray(body) ? body : [body]))
+    api
+      .adminPanel(config.path)
+      .then(setRows)
       .catch((e: Error) => setError(e.message));
   }, [tab, config]);
 
@@ -176,7 +196,9 @@ function ApiPanel({ tab }: { tab: string }) {
   );
 
   return (
-    <div className="overflow-x-auto">
+    <>
+      <PanelChart tab={tab} rows={rows} />
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="text-left text-xs text-muted">
           <tr className="border-b border-line">
@@ -199,8 +221,75 @@ function ApiPanel({ tab }: { tab: string }) {
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
+}
+
+/**
+ * The chart above a panel, where one is meaningful.
+ *
+ * A table of eval runs answers "what was the number"; the chart answers "which
+ * way is it moving, and how close is it to the floor" — which is the question
+ * anyone actually opens this page to ask. Rendered from the same rows as the
+ * table, so the two cannot disagree.
+ */
+function PanelChart({ tab, rows }: { tab: string; rows: Record<string, unknown>[] }) {
+  if (tab === "evals") {
+    // Oldest first: a trend read right-to-left is a trend read wrong.
+    const points = [...rows]
+      .reverse()
+      .filter((r) => typeof r.groundedness === "number")
+      .map((r) => ({
+        label: String(r.run_id ?? "").replace(/^run-/, ""),
+        value: r.groundedness as number,
+      }));
+    if (points.length < 2) return null;
+
+    return (
+      <section className="mb-6 rounded-xl border border-line bg-card p-4">
+        <h3 className="text-sm font-medium">Groundedness by run</h3>
+        <p className="mt-0.5 text-xs text-muted">
+          The dashed line is the absolute floor in the gate. A delta-only gate would let
+          this ratchet downward one acceptable drop at a time.
+        </p>
+        <div className="mt-3">
+          <LineChart points={points} floor={0.88} />
+        </div>
+      </section>
+    );
+  }
+
+  if (tab === "calibration") {
+    const judges = rows.filter((r) => Array.isArray(r.reliability_bins));
+    if (judges.length === 0) return null;
+
+    return (
+      <section className="mb-6 rounded-xl border border-line bg-card p-4">
+        <h3 className="text-sm font-medium">Reliability</h3>
+        <p className="mt-0.5 text-xs text-muted">
+          Stated confidence against observed accuracy. The dashed diagonal is perfect
+          calibration; a curve below it is a judge claiming more certainty than it earns,
+          which is why its vote is weighted <code>1 / (1 + ECE)</code>.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-8">
+          {judges.map((j) => (
+            <figure key={String(j.judge)} className="m-0">
+              <ReliabilityDiagram
+                bins={j.reliability_bins as { confidence: number; accuracy: number; n: number }[]}
+                label={String(j.judge)}
+              />
+              <figcaption className="mt-1 text-center text-xs text-muted">
+                {String(j.judge)} · ECE {Number(j.ece).toFixed(3)}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  return null;
 }
 
 function format(value: unknown): string {
