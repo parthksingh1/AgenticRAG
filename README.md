@@ -49,7 +49,7 @@ no provider key means a hashing embedder and a clear error on generation — and
 |---|---|
 | **Ingestion** | PDF/DOCX/PPTX/HTML/MD/CSV/XLSX/images, layout-aware and semantic chunking, contextual retrieval, MinHash dedupe, document versioning with stale-chunk marking, Celery with retry, backoff and a dead-letter path |
 | **Retrieval** | pgvector HNSW + OpenSearch BM25, reciprocal-rank fusion, cross-encoder reranking, HyDE and multi-query rewriting, Corrective RAG with a web fallback, GraphRAG over Neo4j — all toggleable per tenant |
-| **Agent** | A LangGraph state machine with eleven nodes, explicit token and tool budgets, and token-level streaming over SSE |
+| **Agent** | A LangGraph state machine with thirteen nodes, explicit token and tool budgets, and token-level streaming over SSE |
 | **Tools** | Six MCP servers: document search, SQL analytics, web fetch, calculator, graph query, sandboxed code execution |
 | **Guardrails** | Prompt-injection detection, PII detection and redaction, an NLI-based hallucination check, citation verification, cost caps and token-bucket rate limits — every decision logged as a span attribute and a database row |
 | **Multi-tenancy** | Row-level isolation enforced at the SQLAlchemy session level, which fails closed |
