@@ -1,7 +1,26 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Nav } from "@/components/nav";
 import { DemoBanner } from "@/components/demo-banner";
+
+/**
+ * Self-hosted at build time by next/font, so there is no render-blocking request
+ * to a font CDN and no flash of a fallback face. `display: swap` still matters:
+ * if the font somehow fails, text renders in the fallback rather than staying
+ * invisible.
+ */
+const sans = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-sans",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
   title: "AgenticRAG",
@@ -18,7 +37,7 @@ export const metadata: Metadata = {
  */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={`${sans.variable} ${mono.variable}`}>
       <head>
         <script
           dangerouslySetInnerHTML={{

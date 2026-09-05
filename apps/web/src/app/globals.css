@@ -3,32 +3,95 @@
 @tailwind utilities;
 
 /* Colours are declared once as RGB triples so Tailwind's <alpha-value> works
-   and the dark theme redefines only the tokens, never the components. */
+   and the dark theme redefines only the tokens, never the components.
+
+   The neutrals carry a slight blue cast rather than being pure grey. Pure
+   #808080 greys read as cheap next to a saturated accent, because nothing in
+   the interface then shares a hue with anything else. */
 :root {
-  --bg: 255 255 255;
-  --fg: 22 24 29;
-  --muted: 107 114 128;
-  --line: 229 231 235;
-  --card: 249 250 251;
+  --bg: 252 252 253;
+  --fg: 17 19 24;
+  --muted: 113 119 132;
+  --line: 226 228 233;
+  --card: 255 255 255;
+  --elevated: 255 255 255;
   --accent: 79 70 229;
+  --accent-fg: 255 255 255;
+
+  /* Two-stop accent, used on the logo mark and the primary button. A flat fill
+     at this size looks unfinished; the gradient is what reads as considered. */
+  --accent-from: 99 91 255;
+  --accent-to: 129 82 245;
+
+  --shadow-sm: 0 1px 2px rgb(16 18 24 / 0.04), 0 1px 3px rgb(16 18 24 / 0.06);
+  --shadow-md: 0 2px 4px rgb(16 18 24 / 0.04), 0 8px 20px -6px rgb(16 18 24 / 0.10);
+  --shadow-lg: 0 12px 40px -12px rgb(16 18 24 / 0.18);
 }
 
 .dark {
-  --bg: 15 17 21;
-  --fg: 230 232 235;
-  --muted: 156 163 175;
-  --line: 38 43 51;
-  --card: 22 26 32;
+  --bg: 12 14 18;
+  --fg: 232 234 238;
+  --muted: 148 155 168;
+  --line: 33 38 47;
+  --card: 18 21 27;
+  --elevated: 23 27 34;
   --accent: 129 140 248;
+  --accent-fg: 12 14 18;
+
+  --accent-from: 129 140 248;
+  --accent-to: 167 139 250;
+
+  /* Shadows do almost nothing on a dark ground — depth there comes from a
+     lighter surface, not a darker shadow — so these stay subtle and the
+     elevated token does the work. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-md: 0 4px 16px -4px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 16px 48px -16px rgb(0 0 0 / 0.65);
 }
 
-html { color-scheme: light dark; }
+html {
+  color-scheme: light dark;
+  -webkit-tap-highlight-color: transparent;
+}
 
 body {
   background: rgb(var(--bg));
   color: rgb(var(--fg));
-  font-feature-settings: "cv02", "cv03", "cv04";
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Inter's alternate glyphs: single-storey a is not wanted, but the
+     straight-tailed l and the open 4/7 make dense UI text easier to scan. */
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
+
+code, pre, .tabular-nums, [class*="font-mono"] {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, monospace;
+  font-feature-settings: normal;
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.22);
+}
+
+/* A scrollbar that does not repaint the page's neutral scheme in the browser
+   default grey. Firefox takes the two-value form; WebKit needs the pseudos. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--muted) / 0.35) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--muted) / 0.28);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted) / 0.45); background-clip: content-box; }
 
 /* Respect the setting rather than animating regardless. Motion sickness is not
    a hypothetical, and a chat UI animates constantly. */
@@ -44,28 +107,82 @@ body {
 :focus-visible {
   outline: 2px solid rgb(var(--accent));
   outline-offset: 2px;
+  border-radius: 6px;
 }
 
-.prose-answer :where(p, ul, ol) { margin-block: 0.6em; }
+@layer components {
+  /* One definition of a raised surface. Cards drifting apart by a pixel of
+     radius across five pages is the thing that reads as amateur. */
+  .surface {
+    background: rgb(var(--card));
+    border: 1px solid rgb(var(--line));
+    border-radius: 0.875rem;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .surface-raised {
+    background: rgb(var(--elevated));
+    border: 1px solid rgb(var(--line));
+    border-radius: 0.875rem;
+    box-shadow: var(--shadow-md);
+  }
+
+  .accent-gradient {
+    background-image: linear-gradient(
+      135deg,
+      rgb(var(--accent-from)),
+      rgb(var(--accent-to))
+    );
+  }
+
+  /* The hairline above the composer and below sticky headers. A plain border
+     stops dead at the container edge; this fades out, so a scrolled surface
+     reads as continuous. */
+  .edge-fade {
+    background-image: linear-gradient(
+      to right,
+      transparent,
+      rgb(var(--line)) 12%,
+      rgb(var(--line)) 88%,
+      transparent
+    );
+  }
+}
+
+.prose-answer :where(p, ul, ol) { margin-block: 0.7em; }
 .prose-answer :where(ul, ol) { padding-inline-start: 1.4em; }
 .prose-answer :where(ul) { list-style: disc; }
 .prose-answer :where(ol) { list-style: decimal; }
+.prose-answer :where(strong) { font-weight: 650; color: rgb(var(--fg)); }
 .prose-answer :where(code) {
-  background: rgb(var(--card));
-  border-radius: 4px;
-  padding: 0.05em 0.3em;
-  font-size: 0.9em;
+  background: rgb(var(--muted) / 0.12);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+  font-size: 0.875em;
 }
 .prose-answer :where(pre) {
   background: rgb(var(--card));
   border: 1px solid rgb(var(--line));
-  border-radius: 8px;
-  padding: 0.8rem;
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
   overflow-x: auto;
+  box-shadow: var(--shadow-sm);
 }
-.prose-answer :where(table) { width: 100%; border-collapse: collapse; }
+.prose-answer :where(pre code) { background: none; padding: 0; }
+.prose-answer :where(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
 .prose-answer :where(th, td) {
   border-bottom: 1px solid rgb(var(--line));
-  padding: 0.4rem 0.6rem;
+  padding: 0.45rem 0.7rem;
   text-align: left;
+}
+.prose-answer :where(th) {
+  font-weight: 600;
+  color: rgb(var(--muted));
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
