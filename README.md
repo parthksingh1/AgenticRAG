@@ -45,6 +45,8 @@ no provider key means a hashing embedder and a clear error on generation — and
 
 ## What it looks like
 
+![The chat surface](docs/screenshots/00-home.png)
+
 These are captured from the demo build described in
 [docs/DEPLOYING-THE-DEMO.md](docs/DEPLOYING-THE-DEMO.md) — the real interface on
 fixture data, which is why each one carries a banner saying so. The banner is
