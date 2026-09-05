@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { DEMO_GRAPH, isDemo } from "@/lib/demo";
 
 /**
  * The knowledge-graph explorer.
@@ -21,17 +22,24 @@ export default function GraphPage() {
 
     async function draw() {
       try {
-        const [{ default: cytoscape }, response] = await Promise.all([
-          import("cytoscape"),
-          fetch("/api/backend/graph/neighbourhood?limit=150"),
-        ]);
-        if (destroyed) return;
-
-        if (!response.ok) throw new Error(`The graph API returned ${response.status}.`);
-        const body = (await response.json()) as {
+        type GraphBody = {
           nodes: { id: string; label: string; type: string }[];
           edges: { source: string; target: string; label: string }[];
         };
+
+        const cytoscapeModule = import("cytoscape");
+        let body: GraphBody;
+
+        if (isDemo) {
+          body = DEMO_GRAPH;
+        } else {
+          const response = await fetch("/api/backend/graph/neighbourhood?limit=150");
+          if (!response.ok) throw new Error(`The graph API returned ${response.status}.`);
+          body = (await response.json()) as GraphBody;
+        }
+
+        const { default: cytoscape } = await cytoscapeModule;
+        if (destroyed) return;
 
         if (!body.nodes?.length) {
           setStatus("empty");

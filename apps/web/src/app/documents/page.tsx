@@ -95,6 +95,8 @@ export default function DocumentsPage() {
         }}
       >
         <div className="mx-auto w-full max-w-4xl">
+          <Stats documents={documents} />
+
           <div
             className={cn(
               "mb-5 rounded-xl border-2 border-dashed border-line p-8 text-center transition-colors",
@@ -206,4 +208,51 @@ function formatBytes(bytes: number): string {
     unit += 1;
   }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+/**
+ * A count of what is actually indexed, above the list.
+ *
+ * The list answers "which documents"; this answers "is the corpus healthy",
+ * which is the question someone opens this page with. Failed is shown even when
+ * it is zero — a count that only appears when something is wrong is a count
+ * nobody learns to look for.
+ */
+function Stats({ documents }: { documents: Doc[] }) {
+  if (documents.length === 0) return null;
+
+  const chunks = documents.reduce((n, d) => n + d.chunk_count, 0);
+  const pages = documents.reduce((n, d) => n + (d.page_count ?? 0), 0);
+  const failed = documents.filter((d) => d.status === "failed").length;
+  const working = documents.filter((d) => !SETTLED.has(d.status)).length;
+
+  const cards: { label: string; value: string; tone?: "warn" | "bad" }[] = [
+    { label: "Documents", value: String(documents.length) },
+    { label: "Chunks", value: chunks.toLocaleString() },
+    { label: "Pages", value: pages ? pages.toLocaleString() : "—" },
+    working > 0
+      ? { label: "Processing", value: String(working), tone: "warn" }
+      : { label: "Failed", value: String(failed), tone: failed > 0 ? "bad" : undefined },
+  ];
+
+  return (
+    <div className="mb-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      {cards.map((c) => (
+        <div key={c.label} className="surface px-3.5 py-3">
+          <p className="text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted">
+            {c.label}
+          </p>
+          <p
+            className={cn(
+              "mt-1 text-[22px] font-semibold leading-none tracking-[-0.02em] tabular-nums",
+              c.tone === "warn" && "text-amber-500",
+              c.tone === "bad" && "text-red-500",
+            )}
+          >
+            {c.value}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
 }
