@@ -233,6 +233,53 @@ flowchart LR
 The full walkthrough, including why each store is there and what happens when
 each one is missing, is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+### Deployment topology
+
+Nine services across four tiers, each deployed by a different mechanism because
+each has a different failure model. The web tier is static and belongs on a CDN
+edge; the API tier is stateful and rolls out by canary; the stores are managed
+because running your own Postgres to prove you can is not an achievement.
+
+```mermaid
+flowchart TB
+  subgraph edge["Edge tier — Vercel"]
+    WEB["Next.js 15<br/>static prerender, 6 routes"]
+  end
+  subgraph app["Application tier — Fly.io, canary 10 → 50 → 100"]
+    API["FastAPI<br/>46 routes, OpenAI-compatible /v1"]
+    WORK["Celery workers<br/>retry, backoff, dead-letter"]
+  end
+  subgraph data["Data tier — managed"]
+    PG[("Postgres + pgvector<br/>HNSW, 25 tables")]
+    OS[("OpenSearch<br/>index per tenant")]
+    NEO[("Neo4j")]
+    RD[("Redis")]
+    S3[("Object store")]
+  end
+  subgraph obs["Observability"]
+    O["Prometheus · Grafana · Jaeger · Langfuse"]
+  end
+
+  WEB -->|"same-origin rewrite"| API
+  API --> PG & OS & NEO & RD
+  WORK --> PG & S3
+  API -.-> O
+  WORK -.-> O
+```
+
+| Tier | Target | Status |
+|---|---|---|
+| Web | Vercel — static, no cold start | **Live**, running the fixture demo |
+| API + workers | Fly.io, canary at 10/50/100 with automatic rollback | Pipeline written and tested; **never run** |
+| Data | Neon / Bonsai / Aura / Upstash | Not provisioned |
+| Observability | Committed Grafana dashboards, OTel throughout | Runs under `docker compose` |
+
+Only the edge tier is public, and it runs on fixtures. That is a cost decision,
+not a capability one: the remaining tiers need a provider key that every visitor
+would be spending. [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+is the pipeline for the rest, and it says plainly that it has never been
+executed rather than implying a system that is running somewhere.
+
 ---
 
 ## Running it
