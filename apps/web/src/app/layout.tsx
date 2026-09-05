@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Nav } from "@/components/nav";
+import { DemoBanner } from "@/components/demo-banner";
 
 export const metadata: Metadata = {
   title: "AgenticRAG",
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="flex min-h-dvh">
           <Nav />
           <main id="main" className="flex min-w-0 flex-1 flex-col">
+            <DemoBanner />
             {children}
           </main>
         </div>

@@ -14,7 +14,12 @@ const config: NextConfig = {
   },
   // Standalone output: the Docker runner copies .next/standalone and runs
   // server.js, which is what keeps the production image small.
-  output: "standalone",
+  //
+  // Vercel builds its own serverless output and warns that standalone is
+  // ignored there, so it is switched off when Vercel sets VERCEL=1. Leaving it
+  // on is not fatal, but a build that prints a warning about its own
+  // configuration invites the reader to wonder what else was left unchecked.
+  ...(process.env.VERCEL ? {} : { output: "standalone" as const }),
 };
 
 export default config;

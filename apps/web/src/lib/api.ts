@@ -14,6 +14,8 @@
 
 import { z } from "zod";
 
+import * as demo from "./demo";
+
 const BASE = "/api/backend";
 
 /** How long a non-streaming request may take before it is abandoned. */
@@ -166,20 +168,65 @@ async function request<S extends z.ZodTypeAny>(
 }
 
 export const api = {
-  ask: (body: { message: string; conversation_id?: string; model?: string }) =>
-    request("/chat", answerSchema, { method: "POST", body: JSON.stringify(body) }),
+  ask: async (body: { message: string; conversation_id?: string; model?: string }) => {
+    if (demo.isDemo) {
+      await demo.sleep(600);
+      return demo.demoAnswer(body.message).answer;
+    }
+    return request("/chat", answerSchema, { method: "POST", body: JSON.stringify(body) });
+  },
 
-  documents: () => request("/documents", z.array(documentSchema)),
+  documents: async () => {
+    if (demo.isDemo) {
+      await demo.sleep(220);
+      return demo.DEMO_DOCS;
+    }
+    return request("/documents", z.array(documentSchema));
+  },
 
-  document: (id: string) => request(`/documents/${id}`, documentSchema),
+  document: async (id: string) => {
+    if (demo.isDemo) {
+      const found = demo.DEMO_DOCS.find((d) => d.id === id);
+      if (!found) throw new ApiError("No such document.", 404);
+      return found;
+    }
+    return request(`/documents/${id}`, documentSchema);
+  },
 
-  deleteDocument: (id: string) =>
-    request(`/documents/${id}`, z.unknown(), { method: "DELETE" }),
+  deleteDocument: async (id: string) => {
+    // Deliberately refused rather than faked. A delete that appears to work and
+    // then reappears on reload is a worse demo than one that says it is read-only.
+    if (demo.isDemo) throw new ApiError("This demo is read-only.", 403);
+    return request(`/documents/${id}`, z.unknown(), { method: "DELETE" });
+  },
 
-  search: (body: { query: string; top_k?: number; strategies?: string[] }) =>
-    request("/search", searchResponseSchema, { method: "POST", body: JSON.stringify(body) }),
+  search: async (body: { query: string; top_k?: number; strategies?: string[] }) => {
+    if (demo.isDemo) {
+      await demo.sleep(320);
+      return demo.demoSearch(body.query, body.strategies ?? ["dense"]);
+    }
+    return request("/search", searchResponseSchema, { method: "POST", body: JSON.stringify(body) });
+  },
 
-  cost: (days = 30) => request(`/admin/cost?days=${days}`, costSchema),
+  cost: async (days = 30) => {
+    if (demo.isDemo) {
+      await demo.sleep(200);
+      return demo.DEMO_COST;
+    }
+    return request(`/admin/cost?days=${days}`, costSchema);
+  },
+
+  /** Raw admin panels, which read arbitrary JSON rather than a fixed schema. */
+  adminPanel: async (path: string): Promise<Record<string, unknown>[]> => {
+    if (demo.isDemo) {
+      await demo.sleep(260);
+      return demo.demoAdmin(path) ?? [];
+    }
+    const response = await fetch(`${BASE}${path}`);
+    if (!response.ok) throw new ApiError(`The API returned ${response.status}.`, response.status);
+    const body: unknown = await response.json();
+    return Array.isArray(body) ? body : [body as Record<string, unknown>];
+  },
 };
 
 /**
@@ -198,6 +245,11 @@ export async function* streamAnswer(
   body: { message: string; conversation_id?: string; include_thinking?: boolean },
   signal?: AbortSignal,
 ): AsyncGenerator<{ type: string; data: Record<string, unknown> }> {
+  if (demo.isDemo) {
+    yield* demo.demoStream(body.message);
+    return;
+  }
+
   const response = await fetch(`${BASE}/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
