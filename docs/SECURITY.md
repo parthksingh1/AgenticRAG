@@ -171,6 +171,24 @@ finds them.
 Recorded rather than silently suppressed, so that anyone reading the CI
 configuration can see what was decided and why.
 
+**`braces` — stack-exhaustion denial of service, reachable from the frontend
+build toolchain.** No fix exists. The latest published release of `braces` *is*
+3.0.3 and the advisory covers `<=3.0.3`, so there is nothing to upgrade to;
+`npm audit` suggests a `tailwindcss` v4 major upgrade, which resolves the
+finding only by dropping the dependency entirely.
+
+It reaches the tree through `tailwindcss` and `eslint-config-next`, both
+`devDependencies`. `npm audit --omit=dev` reports **zero** vulnerabilities, so
+nothing in the shipped bundle is affected — the exposure is a denial-of-service
+vector in a tool that runs in CI and on a developer's laptop, against input that
+is this repository's own source.
+
+The CI job was therefore split: production dependencies are audited at `high`
+and **fail the build**; dev dependencies are audited and reported but do not
+block. The alternative was a framework migration to silence an advisory with no
+patch, which is not a security improvement. The advisories that did have fixes
+were taken.
+
 **`cryptography` 48.x — PYSEC-2026-3552, -3553, -3554.** Fixed upstream in
 49.0.0 and 50.0.0. `presidio-anonymizer` 2.2.364, the current release, pins
 `cryptography<49.0.0`, and presidio drives the PII redaction guardrail, so
