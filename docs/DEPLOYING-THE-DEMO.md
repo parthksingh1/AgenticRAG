@@ -4,7 +4,7 @@ The frontend can be deployed on its own, with no backend, no database and no
 provider key. It runs on fixture data and says so on every screen.
 
 This exists because the alternative is worse. The full system is nine services —
-Postgres, OpenSearch, Neo4j, Redis, MinIO, Prometheus, Grafana, the API and the
+Postgres, OpenSearch, Neo4j, Redis, object storage, Prometheus, Grafana, the API and the
 web app — and standing that up publicly costs real money, needs a provider key
 that strangers would be spending, and still leaves a URL that is down more often
 than a portfolio link should be. A frontend deployed alone without demo mode is

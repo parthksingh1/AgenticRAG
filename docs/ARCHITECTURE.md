@@ -34,7 +34,7 @@ sequenceDiagram
 | **Postgres + pgvector** | Everything relational, and the embeddings | Nothing works. This is the only hard dependency. |
 | **Redis** | Semantic and exact caches, rate limits, budget counters, ingestion progress | Caching, rate limiting and live progress. Answers still work, slower and dearer. Budget counters fall back to the durable Postgres counter, so a cache flush cannot hand every tenant an unlimited budget. |
 | **OpenSearch** | BM25 index | Hybrid retrieval degrades to dense-only. Exact-term queries — a product code, an error string — get noticeably worse, because that is precisely what BM25 is good at and embeddings are not. |
-| **MinIO / S3** | Original document bytes | Uploads and the document viewer. Existing chunks still answer. |
+| **S3 object store** | Original document bytes | Uploads and the document viewer. Existing chunks still answer. |
 | **Neo4j** | The extracted knowledge graph | GraphRAG. Multi-hop questions fall back to chunk retrieval, which is worse at them but not useless. |
 
 Every optional store is probed at startup and its absence is reported by
@@ -116,7 +116,7 @@ WARNING. They are the GDPR cascade, the nightly backup, the drift sweep and the
 eval harness.
 
 Isolation for the stores that have no row-level security of their own —
-OpenSearch, Neo4j, Redis, MinIO — is enforced by putting the tenant id in the
+OpenSearch, Neo4j, Redis, object storage — is enforced by putting the tenant id in the
 key, the filter and the node property, and by testing that a query without it
 returns nothing.
 

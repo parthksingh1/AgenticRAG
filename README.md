@@ -225,7 +225,7 @@ flowchart LR
   G2 --> U
   API --> Q[Celery]
   Q --> ING[Ingestion pipeline]
-  ING --> S3[(MinIO)]
+  ING --> S3[(S3 object store)]
   ING --> PG
   API -.-> OTEL[OTel → Prometheus, Jaeger, Langfuse]
 ```
