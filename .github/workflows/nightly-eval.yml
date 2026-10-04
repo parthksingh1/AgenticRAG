@@ -70,9 +70,9 @@ jobs:
       AGRAG_DATABASE_URL: postgresql+asyncpg://agrag:agrag@localhost:5432/agrag
       AGRAG_DATABASE_URL_SYNC: postgresql+psycopg://agrag:agrag@localhost:5432/agrag
       AGRAG_REDIS_URL: redis://localhost:6379/0
-      AGRAG_MINIO_ENDPOINT: localhost:9000
-      AGRAG_MINIO_ACCESS_KEY: minioadmin
-      AGRAG_MINIO_SECRET_KEY: minioadmin
+      AGRAG_MINIO_ENDPOINT: localhost:4566
+      AGRAG_MINIO_ACCESS_KEY: test
+      AGRAG_MINIO_SECRET_KEY: test
       AGRAG_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       AGRAG_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
@@ -82,20 +82,24 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -e "apps/api[dev]"
-      - name: Start MinIO
-        # A step rather than a service container: the official image needs
-        # `server /data` as its command and service containers cannot specify
-        # one. bitnami/minio needed no command, which is why it was used here,
-        # but it no longer publishes a :latest tag -- the pull failed with
-        # "manifest unknown" and took the job with it. Pinned to the same
-        # release docker-compose.yml uses.
+      - name: Start an S3-compatible object store
+        # LocalStack, not MinIO. MinIO's images are no longer publicly
+        # pullable from either registry -- Docker Hub answers "pull access
+        # denied for minio/minio" and quay.io answers 401, so every job that
+        # started one has been failing at this step regardless of what came
+        # after it. There is no tag to re-pin to; the distribution itself
+        # changed.
+        #
+        # LocalStack serves the same S3 API on 4566 and is public. Unverified
+        # end to end, because the job it belongs to cannot run without a
+        # provider key -- see the preflight job.
         run: |
-          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin             -e MINIO_ROOT_PASSWORD=minioadmin             minio/minio:RELEASE.2024-09-13T20-26-02Z server /data
-          for _ in $(seq 1 30); do
-            curl -sf http://localhost:9000/minio/health/live && break
+          docker run -d --name s3 -p 4566:4566 -e SERVICES=s3 localstack/localstack:3
+          for _ in $(seq 1 45); do
+            curl -sf http://localhost:4566/_localstack/health && break
             sleep 2
           done
-          curl -sf http://localhost:9000/minio/health/live
+          curl -sf http://localhost:4566/_localstack/health
       - working-directory: apps/api
         run: alembic upgrade head
       - run: python scripts/seed_demo_tenant.py --wait-for-index
