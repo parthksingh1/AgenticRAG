@@ -141,6 +141,30 @@ The soak run is four hours at lower concurrency, asserting RSS growth under 5%.
 A leak in the embedding cache or an unbounded conversation buffer is invisible in
 a 60-second run and obvious in four hours.
 
+## What CI skips, and why it skips rather than fails
+
+Four jobs call a real model: the end-to-end suite, the pull-request eval gate,
+the nightly eval and the weekly judge recalibration. None of them can do
+anything useful without a provider API key, and no key is configured on this
+repository — running the evals publicly would mean every visitor spending it.
+
+Each of those jobs is gated on a `preflight` job that reports whether a key
+exists, so they report **skipped** rather than failed. This is not cosmetic. A
+job that cannot run has not found a defect, and a check that is permanently red
+for a reason nobody can act on trains people to stop reading the checks — at
+which point the one real failure is invisible too. The preflight job prints a
+notice saying exactly which secret to add to switch them on.
+
+The `secrets` context is not available in a job-level `if`, which is why this
+needs a job and an output rather than a one-line condition.
+
+Everything that does not need a key still runs on every push and still fails the
+build: lint, mypy strict, unit tests, MCP tests, integration tests against a
+real Postgres, tenant-isolation tests, the offline eval harness, contract tests,
+the frontend typecheck and build, and the Docker image build.
+
+---
+
 ## Running one thing
 
 ```bash

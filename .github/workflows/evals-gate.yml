@@ -35,7 +35,32 @@ permissions:
   pull-requests: write
 
 jobs:
+  preflight:
+    name: Provider credentials
+    runs-on: ubuntu-latest
+    outputs:
+      has_keys: ${{ steps.check.outputs.has_keys }}
+    steps:
+      # The `secrets` context is not available in a job-level `if`, so the
+      # check has to happen in a job and reach the others through an output.
+      - id: check
+        env:
+          ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC" ] || [ -n "$OPENAI" ]; then
+            echo "has_keys=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_keys=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Skipped::No provider API key is configured for this repository, so the jobs that call a model cannot run. Add ANTHROPIC_API_KEY or OPENAI_API_KEY under Settings -> Secrets to enable them."
+          fi
+
   gate:
+    needs: preflight
+    # The gate scores answers from a real model. With no key configured it
+    # is skipped, so a pull request is not blocked by a check that could
+    # never have run.
+    if: needs.preflight.outputs.has_keys == 'true'
     name: Gate on ${{ github.event.inputs.set_name || 'golden' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45

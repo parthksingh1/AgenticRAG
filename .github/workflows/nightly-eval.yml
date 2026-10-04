@@ -20,8 +20,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Provider credentials
+    runs-on: ubuntu-latest
+    outputs:
+      has_keys: ${{ steps.check.outputs.has_keys }}
+    steps:
+      # The `secrets` context is not available in a job-level `if`, so the
+      # check has to happen in a job and reach the others through an output.
+      - id: check
+        env:
+          ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC" ] || [ -n "$OPENAI" ]; then
+            echo "has_keys=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_keys=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Skipped::No provider API key is configured for this repository, so the jobs that call a model cannot run. Add ANTHROPIC_API_KEY or OPENAI_API_KEY under Settings -> Secrets to enable them."
+          fi
+
   run:
     runs-on: ubuntu-latest
+    needs: preflight
+    # Every set calls a model. Without a key this is skipped, not failed.
+    if: needs.preflight.outputs.has_keys == 'true'
     timeout-minutes: 120
     strategy:
       # Not fail-fast: if the golden set fails, the adversarial result is still
@@ -97,10 +120,12 @@ jobs:
 
   publish:
     name: Publish to Pages
-    needs: run
+    needs: [preflight, run]
     # Published even when a set failed: a failing nightly is exactly the report
-    # someone needs to read, and hiding it is the opposite of useful.
-    if: always()
+    # someone needs to read, and hiding it is the opposite of useful. But there
+    # is nothing to publish when the sets never ran, and deploy-pages fails on
+    # an empty artifact rather than no-opping.
+    if: always() && needs.preflight.outputs.has_keys == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
